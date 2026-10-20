@@ -1,26 +1,149 @@
 @import "tailwindcss";
 
+/*
+ * 視覺方向：交通標誌。路線號碼用窄體粗字像站牌上的路線牌，
+ * 藍色只代表「目前選的路線」，紅／橘只代表到站狀態。
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --page: #e9edf3;
+  --surface: rgb(255 255 255 / 0.9);
+  --surface-solid: #ffffff;
+  --surface-sunken: #f1f4f8;
+  --line: rgb(16 24 40 / 0.09);
+  --fg: #0e1626;
+  --fg-muted: #4a5568;
+  --fg-subtle: #8a94a6;
+  --route: #1f5eff;
+  --route-ink: #ffffff;
+  --route-soft: rgb(31 94 255 / 0.1);
+  --arriving: #e0352b;
+  --arriving-soft: rgb(224 53 43 / 0.12);
+  --soon: #c76a00;
+  --soon-soft: rgb(229 138 0 / 0.14);
+  --live: #12a150;
+  /* 起訖點：深淺色都用同一組，和地圖上的「起」「迄」標記一致 */
+  --terminal-start: #12a150;
+  --terminal-end: #e0352b;
+  --shadow-panel: 0 1px 2px rgb(16 24 40 / 0.06), 0 12px 40px -12px rgb(16 24 40 / 0.35);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --page: #070b14;
+    --surface: rgb(17 23 36 / 0.88);
+    --surface-solid: #111724;
+    --surface-sunken: #0b101b;
+    --line: rgb(255 255 255 / 0.08);
+    --fg: #eef2f8;
+    --fg-muted: #a7b0c0;
+    --fg-subtle: #6b7486;
+    --route: #5b8cff;
+    --route-ink: #06102a;
+    --route-soft: rgb(91 140 255 / 0.16);
+    --arriving: #ff6b5e;
+    --arriving-soft: rgb(255 107 94 / 0.16);
+    --soon: #ffb340;
+    --soon-soft: rgb(255 179 64 / 0.14);
+    --live: #3ddc84;
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4), 0 16px 48px -12px rgb(0 0 0 / 0.7);
+    color-scheme: dark;
   }
 }
 
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-solid: var(--surface-solid);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-route: var(--route);
+  --color-route-ink: var(--route-ink);
+  --color-route-soft: var(--route-soft);
+  --color-arriving: var(--arriving);
+  --color-arriving-soft: var(--arriving-soft);
+  --color-soon: var(--soon);
+  --color-soon-soft: var(--soon-soft);
+  --color-live: var(--live);
+  --color-terminal-start: var(--terminal-start);
+  --color-terminal-end: var(--terminal-end);
+  --shadow-panel: var(--shadow-panel);
+  --ease-out: var(--ease-out);
+  --font-sans:
+    "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sign: var(--font-sign-face), "PingFang TC", "Noto Sans TC", sans-serif;
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+  background: var(--page);
+  color: var(--fg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* MapLibre 控制項配合深淺色 */
+.maplibregl-ctrl-group {
+  background: var(--surface-solid) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-panel) !important;
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--line) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+    filter: invert(1);
+  }
+
+  .maplibregl-ctrl-attrib {
+    background: rgb(17 23 36 / 0.7) !important;
+    color: var(--fg-muted) !important;
+  }
+
+  .maplibregl-ctrl-attrib a {
+    color: var(--fg-muted) !important;
+  }
+
+  .maplibregl-ctrl-attrib-button {
+    filter: invert(1);
+  }
+}
+
+/*
+ * 手機版面板收合時，下半部在螢幕外（用 transform 移下去）。
+ * 列表底部補上被遮住的高度，最後幾項才捲得到看得見的地方。
+ */
+@media (max-width: 767px) {
+  [data-sheet="collapsed"] [data-scroll-container] {
+    padding-bottom: 44dvh;
+  }
+}
+
+@keyframes live-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  80%,
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

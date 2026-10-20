@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+!.env.example
+
+# 由 scripts/copy-maplibre-worker.mjs 產生
+/public/vendor/
+/test-results/
+/playwright-report/

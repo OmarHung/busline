@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 公車路線圖（busline）
 
-## Getting Started
+在地圖上用線條畫出全台市區公車與公路客運的行駛路線（標出起訖站與行駛方向），並顯示站牌、預估到站時間與公車即時位置。
 
-First, run the development server:
+也能做**路線規劃**：輸入目的地（地點、地標、地址或站名），起點預設為目前位置，列出不用轉乘的直達公車，地圖上畫出步行與乘車路段，並顯示上車站的下一班時間。
+
+資料來源：[交通部 TDX 運輸資料流通服務](https://tdx.transportdata.tw/)。底圖：[OpenFreeMap](https://openfreemap.org/)（OpenStreetMap 資料）。
+
+## 開發
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install          # 會順便把 MapLibre worker 複製到 public/vendor/
+cp .env.example .env.local
+# 在 .env.local 填入 TDX 會員中心的 Client ID / Secret
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| 指令                 | 用途                                                |
+| -------------------- | --------------------------------------------------- |
+| `pnpm test`          | 單元與整合測試（Vitest）                            |
+| `pnpm test:coverage` | 測試覆蓋率（門檻 80%）                              |
+| `pnpm test:e2e`      | E2E 測試（Playwright，API 用假資料，不需 TDX 金鑰） |
+| `pnpm lint`          | ESLint                                              |
+| `pnpm format`        | Prettier                                            |
+| `pnpm data:routes`   | 重新產生全台路線清單 `src/data/route-index.json`    |
+| `pnpm data:stops`    | 重新產生全台站序 `src/data/stop-index.json`         |
+| `pnpm data`          | 兩份資料一起更新（約 10 分鐘）                      |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+第一次執行 E2E 前要先安裝瀏覽器：`npx playwright install chromium`。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 架構
 
-## Learn More
+```
+瀏覽器 ──SWR──▶ /api/routes            ← src/data/route-index.json（預先產生，不打 TDX）
+           └──▶ /api/routes/{uid}*     ──▶ TDX API（程序內 TTL 快取＋CDN Cache-Control，金鑰只在伺服器端）
+```
 
-To learn more about Next.js, take a look at the following resources:
+| API                          | 內容                         | 快取                    |
+| ---------------------------- | ---------------------------- | ----------------------- |
+| `GET /api/routes`            | 全台路線清單（搜尋用）       | 靜態檔，建置時輸出      |
+| `GET /api/routes/{uid}`      | 單一路線的線型、各方向站序   | 12 小時                 |
+| `GET /api/routes/{uid}/live` | 各站預估到站、公車即時位置   | 30 秒（前端 30 秒輪詢） |
+| `GET /api/places?q=`         | 地點搜尋：公車站名＋OSM      | 1 小時                  |
+| `GET /api/plan?from=&to=`    | 直達方案（座標為 經度,緯度） | 1 小時                  |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+路線規劃只用預先產生的站序計算，不呼叫 TDX：找起終點步行 600 公尺內（找不到再放寬到 1 公里）的站，挑同一條路線、方向正確的組合，依「步行＋乘車」估計時間排序，上下車站相同的路線合併成一個方案。地點搜尋先比對公車站名，再查 [Photon](https://photon.komoot.io/)（OpenStreetMap，免費公益服務，經後端快取）。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`uid` 是 TDX 的 RouteUID，例如臺北市 307 是 `TPE16111`；前三碼是縣市代碼，公路客運為 `THB`。網址 `/?r=TPE16111` 可以直接開啟該路線。
 
-## Deploy on Vercel
+```
+src/
+├── app/                 頁面與 API Route Handlers
+├── features/bus-map/    地圖畫面（MapLibre 圖層、搜尋、路線面板）
+├── lib/                 前後端共用：型別、縣市對照、搜尋、到站時間格式、幾何
+├── server/              TDX client（認證、重試、併發限制）、快取、資料轉換、路線規劃、地點搜尋
+└── data/                預先產生的路線清單與站序（pnpm data）
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 部署（Vercel）
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. 在專案設定加上環境變數 `TDX_CLIENT_ID`、`TDX_CLIENT_SECRET`。
+2. Serverless 環境的程序內快取不一定會被重用，主要靠 API 回應的 `s-maxage` 讓 CDN 快取，避免每個使用者都直接打 TDX。
+3. 建議在 Vercel Firewall 對 `/api/routes/*` 設定每個 IP 的速率限制；查無路線雖然也會快取 10 分鐘，但無法擋住大量不同的亂數 uid。
+
+開發時不要在 `pnpm dev` 執行中另外跑 `pnpm build`，dev server 可能會卡在舊的編譯結果，需要重啟。
+
+## 已知限制
+
+- **TDX 免費的基礎會員，每把金鑰每分鐘只能呼叫 5 次。** 開一條新路線要 2 次（線型＋站序，之後快取 12 小時），即時資料每 30 秒 2 次，大約只夠一個人看一條路線。超過額度時 server 會暫停呼叫，直到 TDX 告知的重設時間。
+- 路線規劃只有公車直達，不含轉乘與捷運／台鐵；時間是依距離估算，不含等車與塞車。
+- 全台路線清單與站序是預先產生的檔案，新開或改號的路線要重新執行 `pnpm data:routes` 並部署後才會出現。清單外的路線代碼一律回 404，不會打 TDX。
+
+- TDX 沒有線型（Shape）資料的路線，會用站牌連線代替，並在面板上標示。
+- 公車所在站是依 GPS 位置找最近的站牌推算，僅供參考。
