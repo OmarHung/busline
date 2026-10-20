@@ -64,6 +64,8 @@ public/data/routes/      預先產生的各路線詳情（pnpm data:stops）
 2. Serverless 環境的程序內快取不一定會被重用，主要靠 API 回應的 `s-maxage` 讓 CDN 快取，避免每個使用者都直接打 TDX。
 3. 建議在 Vercel Firewall 對 `/api/routes/*` 設定每個 IP 的速率限制；查無路線雖然也會快取 10 分鐘，但無法擋住大量不同的亂數 uid。
 
+4. 每次推送都會跑 GitHub Actions（`.github/workflows/ci.yml`：格式、lint、型別、單元測試與覆蓋率、E2E）。在 Vercel 專案的 Settings → Deployment Checks 勾選這些檢查，正式版就會等 CI 通過才上線。
+
 開發時不要在 `pnpm dev` 執行中另外跑 `pnpm build`，dev server 可能會卡在舊的編譯結果，需要重啟。
 
 ## 已知限制
