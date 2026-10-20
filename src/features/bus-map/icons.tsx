@@ -81,3 +81,20 @@ export const ChevronRightIcon = (props: IconProps) => (
     <path d="m9 18 6-6-6-6" />
   </svg>
 );
+
+export const PlusIcon = (props: IconProps) => (
+  <svg {...base} {...props}>
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+export const GripIcon = (props: IconProps) => (
+  <svg {...base} {...props} fill="currentColor" stroke="none">
+    {[6, 12, 18].map((y) => (
+      <g key={y}>
+        <circle cx="9" cy={y} r="1.6" />
+        <circle cx="15" cy={y} r="1.6" />
+      </g>
+    ))}
+  </svg>
+);

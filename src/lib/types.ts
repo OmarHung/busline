@@ -123,3 +123,12 @@ export interface PlanResult {
   /** 起終點直線距離；很近時畫面會建議直接走路 */
   directMeters: number;
 }
+
+/** 路線規劃最多幾個經過點（不含起點、終點） */
+export const MAX_WAYPOINTS = 3;
+
+/** 多點行程：起點 → 經過點… → 終點 */
+export interface TripPlan {
+  /** 第 i 段是第 i 個地點到第 i+1 個地點的直達方案 */
+  legs: PlanResult[];
+}

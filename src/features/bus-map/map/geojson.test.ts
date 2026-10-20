@@ -103,47 +103,82 @@ describe("boundsOf", () => {
 
 describe("plan overlay", () => {
   const full: PlanOverlay = {
-    origin: [121.5, 25],
-    board: [121.501, 25],
-    ride: [
-      [121.501, 25],
-      [121.51, 25.01],
-      [121.52, 25.02],
+    points: [
+      { kind: "origin", label: "起", position: [121.5, 25] },
+      { kind: "via", label: "1", position: [121.52, 25.02] },
+      { kind: "destination", label: "終", position: [121.54, 25.03] },
     ],
-    alight: [121.52, 25.02],
-    destination: [121.521, 25.022],
+    legs: [
+      {
+        from: [121.5, 25],
+        to: [121.52, 25.02],
+        board: [121.501, 25],
+        alight: [121.519, 25.019],
+        ride: [
+          [121.501, 25],
+          [121.51, 25.01],
+          [121.519, 25.019],
+        ],
+      },
+      {
+        from: [121.52, 25.02],
+        to: [121.54, 25.03],
+        board: [121.521, 25.021],
+        alight: [121.539, 25.029],
+        ride: [
+          [121.521, 25.021],
+          [121.539, 25.029],
+        ],
+      },
+    ],
   };
 
-  test("draws walking legs to and from the stops around the bus ride", () => {
+  test("draws walking legs to and from the stops around each bus ride", () => {
     const fc = planLineFeatures(full);
     expect(fc.features.map((f) => [f.properties.kind, f.geometry.coordinates.length])).toEqual([
       ["walk", 2],
       ["ride", 3],
       ["walk", 2],
+      ["walk", 2],
+      ["ride", 2],
+      ["walk", 2],
     ]);
   });
 
-  test("marks the origin, destination and the two stops", () => {
+  test("marks the stops of every leg, then the origin, waypoints and destination on top", () => {
     const fc = planPointFeatures(full);
     expect(fc.features.map((f) => [f.properties.kind, f.properties.label])).toEqual([
       ["stop", ""],
       ["stop", ""],
+      ["stop", ""],
+      ["stop", ""],
       ["origin", "起"],
+      ["via", "1"],
       ["destination", "終"],
     ]);
   });
 
-  test("shows only the endpoints before an option is chosen", () => {
-    const endpoints: PlanOverlay = { ...full, board: null, alight: null, ride: null };
-    expect(planLineFeatures(endpoints).features).toEqual([]);
-    expect(planPointFeatures(endpoints).features.map((f) => f.properties.kind)).toEqual(["origin", "destination"]);
+  test("numbers the points in order, so the map can tell which one is hovered", () => {
+    const points = planPointFeatures(full).features.filter((f) => f.properties.kind !== "stop");
+    expect(points.map((f) => f.properties.order)).toEqual([0, 1, 2]);
+  });
+
+  test("shows only the points before an option is chosen", () => {
+    const pointsOnly: PlanOverlay = { ...full, legs: [] };
+    expect(planLineFeatures(pointsOnly).features).toEqual([]);
+    expect(planPointFeatures(pointsOnly).features.map((f) => f.properties.kind)).toEqual([
+      "origin",
+      "via",
+      "destination",
+    ]);
   });
 
   test("bounds cover everything drawn", () => {
     expect(planBounds(full)).toEqual([
       [121.5, 25],
-      [121.521, 25.022],
+      [121.54, 25.03],
     ]);
+    expect(planBounds({ points: [], legs: [] })).toBeNull();
     expect(planBounds(null)).toBeNull();
     expect(planLineFeatures(null).features).toEqual([]);
     expect(planPointFeatures(null).features).toEqual([]);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { badRequest, cachedJson, errorResponse, parseLngLat } from "./http";
+import { badRequest, cachedJson, errorResponse, parseLngLat, parseLngLatList } from "./http";
 import { TdxError } from "./tdx/client";
 import { ConfigError, RouteNotFoundError } from "./tdx/service";
 
@@ -51,6 +51,20 @@ describe("parseLngLat", () => {
 
   test.each([null, "", "121.5", "abc,25", "121,25,1", "25.03,121.56", "139.69,35.68"])("rejects %j", (text) => {
     expect(parseLngLat(text)).toBeNull();
+  });
+});
+
+describe("parseLngLatList", () => {
+  test("parses points separated by semicolons, in order", () => {
+    expect(parseLngLatList("121.5,25;121.6,25.1;121.7,25.2")).toEqual([
+      [121.5, 25],
+      [121.6, 25.1],
+      [121.7, 25.2],
+    ]);
+  });
+
+  test.each([null, "", "121.5,25;", "121.5,25;abc,25", "121.5,25;139.69,35.68"])("rejects %j", (text) => {
+    expect(parseLngLatList(text)).toBeNull();
   });
 });
 

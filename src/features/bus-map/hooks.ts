@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import useSWR from "swr";
-import type { LngLat, Place, PlanResult, RouteDetail, RouteIndex, RouteLive } from "@/lib/types";
+import type { LngLat, Place, RouteDetail, RouteIndex, RouteLive, TripPlan } from "@/lib/types";
+import type { RouteDetails } from "./ui/plan/trip";
 
 /** 即時資料更新間隔，配合伺服器端 30 秒快取（TDX 免費額度每分鐘 5 次） */
 const LIVE_REFRESH_MS = 30_000;
@@ -25,10 +26,27 @@ export function useRouteIndex() {
 }
 
 /** 路線詳情（線型＋站序）是 pnpm data:stops 預先產生的靜態檔，開路線不用呼叫 TDX；清單外的路線沒有檔案 */
+const routeDetailUrl = (uid: string) => `/data/routes/${uid}.json`;
 const fetchRouteDetail = (url: string) => fetchJson<RouteDetail>(url, "找不到這條路線");
 
 export function useRouteDetail(uid: string | null) {
-  return useSWR<RouteDetail, Error>(uid ? `/data/routes/${uid}.json` : null, fetchRouteDetail, STATIC_OPTIONS);
+  return useSWR<RouteDetail, Error>(uid ? routeDetailUrl(uid) : null, fetchRouteDetail, STATIC_OPTIONS);
+}
+
+async function fetchRouteDetails([, ...uids]: string[]): Promise<RouteDetails> {
+  const entries = await Promise.all(
+    uids.map(async (uid) => [uid, await fetchRouteDetail(routeDetailUrl(uid)).catch(() => null)] as const),
+  );
+  return Object.fromEntries(entries);
+}
+
+/**
+ * 路線規劃各段選取路線的詳情（一樣是靜態檔）；抓不到的為 null，地圖改用站牌連線。
+ * 換路線時先保留舊資料，沒換的段不會閃一下。
+ */
+export function useRouteDetails(uids: readonly string[]) {
+  const key = uids.length > 0 ? ["route-details", ...[...new Set(uids)].sort()] : null;
+  return useSWR<RouteDetails, Error>(key, fetchRouteDetails, { ...STATIC_OPTIONS, keepPreviousData: true });
 }
 
 /**
@@ -54,9 +72,10 @@ export function usePlaces(query: string, near: LngLat | null) {
   return useSWR<{ places: Place[] }, Error>(key, fetchJson, { ...STATIC_OPTIONS, keepPreviousData: true });
 }
 
-export function usePlan(from: LngLat | null, to: LngLat | null) {
-  const key = from && to ? `/api/plan?from=${coord(from)}&to=${coord(to)}` : null;
-  return useSWR<PlanResult, Error>(key, fetchJson, STATIC_OPTIONS);
+/** 起點、經過點…、終點之間各段的直達方案 */
+export function useTripPlan(points: readonly LngLat[] | null) {
+  const key = points && points.length >= 2 ? `/api/plan?points=${points.map((p) => coord(p)).join(";")}` : null;
+  return useSWR<TripPlan, Error>(key, fetchJson, STATIC_OPTIONS);
 }
 
 export function useDebouncedValue<T>(value: T, delayMs: number): T {

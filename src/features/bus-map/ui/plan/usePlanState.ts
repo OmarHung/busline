@@ -1,57 +1,81 @@
 "use client";
 
-import { useState } from "react";
-import { useCurrentPosition, usePlan } from "../../hooks";
-import type { PlanSelection } from "./PlanResults";
-import type { PlanField, PlanPoint } from "./types";
+import { arrayMove } from "@dnd-kit/sortable";
+import { useMemo, useState } from "react";
+import { MAX_WAYPOINTS } from "@/lib/types";
+import { useCurrentPosition, useTripPlan } from "../../hooks";
+import { buildLegs, legSelectionKey } from "./trip";
+import type { PlanPoint, PlanSelection } from "./types";
 
 const CURRENT_LOCATION_NAME = "目前位置";
 
-const pointKey = (point: PlanPoint | null) => (point ? point.position.join(",") : "-");
+const isChosen = (point: PlanPoint | null): point is PlanPoint => point !== null;
 
-/** 路線規劃的起終點、規劃結果與選取的方案 */
+/** 一個地點欄位；id 不隨順序改變，拖曳排序時用來追蹤是哪一列 */
+interface PlanSlot {
+  id: string;
+  point: PlanPoint | null;
+}
+
+let nextSlotId = 0;
+const emptySlot = (): PlanSlot => ({ id: `slot-${nextSlotId++}`, point: null });
+
+/** 路線規劃的地點（起點、經過點、終點）、各段的規劃結果與選取的方案 */
 export function usePlanState() {
-  const [origin, setOrigin] = useState<PlanPoint | null>(null);
-  const [destination, setDestination] = useState<PlanPoint | null>(null);
-  // 選取綁定起終點；起終點改了就回到預設（第一個方案）
-  const [choice, setChoice] = useState<{ key: string; selection: PlanSelection } | null>(null);
-  // 即時到站要呼叫 TDX（每分鐘只有 5 次），使用者按了才查；綁定選取的路線，換一條就要重按
+  // 依序為起點、經過點…、終點；還沒選的 point 是 null（空的經過點規劃時略過）
+  const [slots, setSlots] = useState<PlanSlot[]>(() => [emptySlot(), emptySlot()]);
+  // 各段的選取，以段的 key 綁定起訖地點；地點改了那一段就回到預設（第一個方案）
+  const [choices, setChoices] = useState<Record<string, PlanSelection>>({});
+  // 即時到站要呼叫 TDX（每分鐘只有 5 次），使用者按了才查；同時只查一段的一條路線，換一條就要重按
   const [liveKey, setLiveKey] = useState<string | null>(null);
   const locator = useCurrentPosition();
-  const plan = usePlan(origin?.position ?? null, destination?.position ?? null);
 
-  const key = `${pointKey(origin)}|${pointKey(destination)}`;
-  const hasOptions = (plan.data?.options.length ?? 0) > 0;
-  const selection = choice?.key === key ? choice.selection : hasOptions ? { option: 0, ride: 0 } : null;
-  const selectedOption = selection ? plan.data?.options[selection.option] : undefined;
-  const selectedRide = selection ? selectedOption?.rides[selection.ride] : undefined;
-  const selectionKey = selection ? `${key}|${selection.option}:${selection.ride}` : null;
-  const isLiveRequested = selectionKey !== null && liveKey === selectionKey;
+  const points = useMemo(() => slots.map((slot) => slot.point), [slots]);
+  const slotIds = useMemo(() => slots.map((slot) => slot.id), [slots]);
+  const origin = points[0];
+  const destination = points[points.length - 1];
+  const isReady = origin !== null && destination !== null;
+  const chosen = useMemo(() => points.filter(isChosen), [points]);
+  const trip = useTripPlan(isReady ? chosen.map((p) => p.position) : null);
+  const legs = useMemo(
+    () => (isReady ? buildLegs(chosen, trip.data, choices, liveKey) : []),
+    [isReady, chosen, trip.data, choices, liveKey],
+  );
+  const waypointCount = points.length - 2;
 
-  const setPoint = (field: PlanField, point: PlanPoint | null) =>
-    field === "origin" ? setOrigin(point) : setDestination(point);
+  const setPoint = (index: number, point: PlanPoint | null) =>
+    setSlots((prev) => prev.map((slot, i) => (i === index ? { ...slot, point } : slot)));
+
+  /** 在終點前加一個空的經過點，回傳它的位置；已達上限時回傳 null */
+  const addWaypoint = (): number | null => {
+    if (waypointCount >= MAX_WAYPOINTS) return null;
+    setSlots((prev) => [...prev.slice(0, -1), emptySlot(), prev[prev.length - 1]]);
+    return points.length - 1;
+  };
 
   const pickCurrentLocation = async () => {
     const position = await locator.locate();
-    if (position) setOrigin({ name: CURRENT_LOCATION_NAME, position, isCurrentLocation: true });
+    if (position) setPoint(0, { name: CURRENT_LOCATION_NAME, position, isCurrentLocation: true });
   };
 
   return {
+    points,
+    slotIds,
     origin,
-    destination,
+    waypointCount,
+    canAddWaypoint: waypointCount < MAX_WAYPOINTS,
     setPoint,
-    swap: () => {
-      setOrigin(destination);
-      setDestination(origin);
-    },
+    addWaypoint,
+    removeWaypoint: (index: number) => setSlots((prev) => prev.filter((_, i) => i !== index)),
+    /** 整趟反過來走：起點變終點，經過點的順序也反過來 */
+    reverse: () => setSlots((prev) => [...prev].reverse()),
+    /** 拖曳排序：排第一的成為起點、最後的成為終點 */
+    move: (from: number, to: number) => setSlots((prev) => arrayMove(prev, from, to)),
     locator,
     pickCurrentLocation,
-    plan,
-    selection,
-    select: (next: PlanSelection) => setChoice({ key, selection: next }),
-    selectedOption,
-    selectedRide,
-    isLiveRequested,
-    requestLive: () => setLiveKey(selectionKey),
+    trip,
+    legs,
+    select: (leg: number, selection: PlanSelection) => setChoices((prev) => ({ ...prev, [legs[leg].key]: selection })),
+    requestLive: (leg: number) => setLiveKey(legSelectionKey(legs[leg])),
   };
 }

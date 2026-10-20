@@ -61,6 +61,12 @@ export function parseLngLat(text: string | null): LngLat | null {
   return [lng, lat];
 }
 
+/** 解析以分號分隔的多個 "經度,緯度"；任何一個不合格就回傳 null */
+export function parseLngLatList(text: string | null): LngLat[] | null {
+  const points = (text ?? "").split(";").map(parseLngLat);
+  return points.every((point): point is LngLat => point !== null) ? points : null;
+}
+
 export function badRequest(message: string): Response {
   return Response.json({ error: message }, { status: 400, headers: noStore });
 }

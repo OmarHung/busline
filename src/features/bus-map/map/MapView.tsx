@@ -1,9 +1,18 @@
 "use client";
 
 import "maplibre-gl/dist/maplibre-gl.css";
-import { AttributionControl, GeolocateControl, Map as MapLibreMap, NavigationControl, setWorkerUrl } from "maplibre-gl";
-import { useEffect, useRef, useState } from "react";
-import type { LiveBus, RouteDetail } from "@/lib/types";
+import {
+  AttributionControl,
+  GeolocateControl,
+  Map as MapLibreMap,
+  NavigationControl,
+  Popup,
+  setWorkerUrl,
+  type MapGeoJSONFeature,
+} from "maplibre-gl";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import type { LiveBus, LngLat, RouteDetail } from "@/lib/types";
 import {
   boundsOf,
   busesFeatures,
@@ -17,6 +26,7 @@ import {
 import {
   installRouteLayers,
   MAP_STYLE_URLS,
+  PLAN_POINT_LAYER,
   setSourceData,
   SOURCE,
   STOP_LAYER,
@@ -45,6 +55,8 @@ const TAIWAN_BOUNDS: [[number, number], [number, number]] = [
 ];
 const ROUTE_MAX_ZOOM = 15.5;
 const STOP_FOCUS_ZOOM = 15.5;
+/** 資訊卡離標記中心的距離（標記半徑 11px） */
+const POPUP_OFFSET = 16;
 
 export type Insets = { top: number; bottom: number; left: number; right: number };
 
@@ -58,7 +70,19 @@ type Props = {
   padding: Insets;
   /** 路線規劃模式要畫的起終點、步行與乘車段 */
   plan: PlanOverlay | null;
+  /** hover（手機為點一下）規劃地點時資訊卡的內容；order 是 plan.points 的位置 */
+  renderPlanPoint?: (order: number) => ReactNode;
   scheme: ColorScheme;
+};
+
+/** 標記的位置可能因規劃改變而換人，記下當時的地點組合，對不上就不顯示 */
+type HoveredPoint = { order: number; pointsKey: string };
+
+const pointsKeyOf = (plan: PlanOverlay | null) => plan?.points.map((p) => p.position.join(",")).join(";") ?? "";
+
+const orderOf = (feature: MapGeoJSONFeature | undefined): number | null => {
+  const order: unknown = feature?.properties?.order;
+  return typeof order === "number" ? order : null;
 };
 
 export default function MapView({
@@ -70,18 +94,26 @@ export default function MapView({
   padding,
   scheme,
   plan,
+  renderPlanPoint,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const popupRef = useRef<Popup | null>(null);
   const schemeRef = useRef(scheme);
   const paddingRef = useRef(padding);
   const onStopClickRef = useRef(onStopClick);
+  const pointsKey = pointsKeyOf(plan);
+  const pointsKeyRef = useRef(pointsKey);
   /** 每次底圖樣式載入完成就 +1，讓資料 effect 重新寫入圖層 */
   const [styleVersion, setStyleVersion] = useState(0);
+  const [hoveredPoint, setHoveredPoint] = useState<HoveredPoint | null>(null);
+  // 資訊卡的內容用 React 渲染進 MapLibre Popup 的 DOM（地點名稱來自外部資料，不拼 HTML 字串）
+  const [popupNode] = useState(() => document.createElement("div"));
 
   useEffect(() => {
     paddingRef.current = padding;
     onStopClickRef.current = onStopClick;
+    pointsKeyRef.current = pointsKey;
   });
 
   useEffect(() => {
@@ -122,12 +154,38 @@ export default function MapView({
       });
     }
 
+    const showPoint = (order: number | null) =>
+      setHoveredPoint(order === null ? null : { order, pointsKey: pointsKeyRef.current });
+    map.on("mouseenter", PLAN_POINT_LAYER, (e) => {
+      map.getCanvas().style.cursor = "pointer";
+      showPoint(orderOf(e.features?.[0]));
+    });
+    map.on("mouseleave", PLAN_POINT_LAYER, () => {
+      map.getCanvas().style.cursor = "";
+      showPoint(null);
+    });
+    // 手機沒有 hover：點標記顯示，點地圖其他地方收起
+    map.on("click", (e) => {
+      const [feature] = map.getLayer(PLAN_POINT_LAYER)
+        ? map.queryRenderedFeatures(e.point, { layers: [PLAN_POINT_LAYER] })
+        : [];
+      showPoint(orderOf(feature));
+    });
+    popupRef.current = new Popup({
+      closeButton: false,
+      closeOnClick: false,
+      offset: POPUP_OFFSET,
+      maxWidth: "none",
+      className: "busline-popup",
+    }).setDOMContent(popupNode);
+
     mapRef.current = map;
     return () => {
       map.remove();
       mapRef.current = null;
+      popupRef.current = null;
     };
-  }, []);
+  }, [popupNode]);
 
   const { top, bottom, left, right } = padding;
   useEffect(() => {
@@ -168,13 +226,25 @@ export default function MapView({
     setSourceData(map, SOURCE.planPoints, planPointFeatures(plan));
   }, [styleVersion, plan]);
 
-  // 規劃的起終點或選的方案改變時，縮放到整趟行程
+  // 規劃的地點或選的方案改變、行程範圍跟著變時，縮放到整趟行程；
+  // 只看範圍：按「查看下一班」之類不影響範圍的更新，不會把使用者移動過的視角拉回來
+  const planBoundsKey = JSON.stringify(planBounds(plan));
   useEffect(() => {
     const map = mapRef.current;
-    const bounds = planBounds(plan);
+    const bounds = JSON.parse(planBoundsKey) as [LngLat, LngLat] | null;
     if (!map || !bounds) return;
     map.fitBounds(bounds, { maxZoom: ROUTE_MAX_ZOOM, duration: 900 });
-  }, [plan]);
+  }, [planBoundsKey]);
+
+  const popupOrder = hoveredPoint?.pointsKey === pointsKey ? hoveredPoint.order : null;
+  const popupPosition = popupOrder !== null ? plan?.points[popupOrder]?.position : undefined;
+  useEffect(() => {
+    const map = mapRef.current;
+    const popup = popupRef.current;
+    if (!map || !popup) return;
+    if (popupPosition) popup.setLngLat(popupPosition).addTo(map);
+    else popup.remove();
+  }, [popupPosition]);
 
   // 換路線或換方向時，縮放到整條路線
   useEffect(() => {
@@ -199,6 +269,7 @@ export default function MapView({
   return (
     <div className="absolute inset-0">
       <div ref={containerRef} className="h-full w-full" role="region" aria-label="公車路線地圖" />
+      {popupPosition && popupOrder !== null && renderPlanPoint && createPortal(renderPlanPoint(popupOrder), popupNode)}
     </div>
   );
 }

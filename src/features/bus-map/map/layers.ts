@@ -155,6 +155,8 @@ function drawBusImage(color: string): ImageData {
 
 /** 起點綠、終點紅，跟路線藍色區分 */
 const ENDPOINT_COLORS = { origin: "#12a150", destination: "#e0352b" };
+/** 路線規劃的經過點（與 globals.css 的 --waypoint 一致） */
+const WAYPOINT_COLOR = "#475569";
 
 /** OpenFreeMap 只提供 Noto Sans；不指定會去抓不存在的 Open Sans（404） */
 const TEXT_FONT = ["Noto Sans Regular"];
@@ -162,6 +164,8 @@ const TEXT_FONT = ["Noto Sans Regular"];
 const ofKind = (kind: string): ExpressionSpecification => ["==", ["get", "kind"], kind];
 
 export const TERMINAL_LAYER = "busline-terminals";
+/** 路線規劃的起點、經過點、終點標記（hover 顯示資訊卡） */
+export const PLAN_POINT_LAYER = "busline-plan-endpoints";
 
 const isTerminal: ExpressionSpecification = ["!=", ["get", "terminal"], ""];
 
@@ -210,7 +214,7 @@ function installTerminalLayers(map: MapLibreMap, palette: MapPalette): void {
   });
 }
 
-/** 路線規劃：步行虛線、實際坐到的那段公車、上下車站與起終點 */
+/** 路線規劃：步行虛線、實際坐到的那段公車、上下車站、起終點與經過點 */
 function installPlanLayers(map: MapLibreMap, palette: MapPalette, scheme: ColorScheme): void {
   const lineLayout = { "line-join": "round", "line-cap": "round" } as const;
   map.addLayer({
@@ -258,13 +262,20 @@ function installPlanLayers(map: MapLibreMap, palette: MapPalette, scheme: ColorS
     },
   });
   map.addLayer({
-    id: "busline-plan-endpoints",
+    id: PLAN_POINT_LAYER,
     type: "circle",
     source: SOURCE.planPoints,
     filter: ["!", ofKind("stop")],
     paint: {
       "circle-radius": 11,
-      "circle-color": ["case", ofKind("origin"), ENDPOINT_COLORS.origin, ENDPOINT_COLORS.destination],
+      "circle-color": [
+        "case",
+        ofKind("origin"),
+        ENDPOINT_COLORS.origin,
+        ofKind("via"),
+        WAYPOINT_COLOR,
+        ENDPOINT_COLORS.destination,
+      ],
       "circle-stroke-color": "#ffffff",
       "circle-stroke-width": 2.5,
     },

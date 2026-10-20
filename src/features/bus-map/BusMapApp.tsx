@@ -4,15 +4,14 @@ import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { isValidRouteUid } from "@/lib/cities";
-import { nearestStopIndex } from "@/lib/geo/nearest";
-import { sliceLineBetween } from "@/lib/geo/slice";
-import { etaKey, type RouteSummary } from "@/lib/types";
-import { useMediaQuery, useRouteDetail, useRouteIndex, useRouteLive, useWindowHeight } from "./hooks";
+import type { RouteSummary } from "@/lib/types";
+import { useMediaQuery, useRouteDetail, useRouteDetails, useRouteIndex, useRouteLive, useWindowHeight } from "./hooks";
 import type { PlanOverlay } from "./map/geojson";
 import { Panel, SHEET_COLLAPSED_RATIO } from "./ui/Panel";
 import { PanelHeader, type PanelMode } from "./ui/PanelHeader";
-import type { BoardEta } from "./ui/plan/PlanResults";
+import { PlanPointPopup } from "./ui/plan/PlanPointPopup";
 import { PlanView } from "./ui/plan/PlanView";
+import { boardEtaOf, pointBusInfo, tripOverlay, type PlanLeg } from "./ui/plan/trip";
 import { usePlanState } from "./ui/plan/usePlanState";
 import { RouteView } from "./ui/RouteView";
 import { SearchView } from "./ui/SearchView";
@@ -24,6 +23,7 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 const DESKTOP_PANEL_WIDTH = 388;
 const APP_TITLE = "公車路線圖";
 const FROM_SEARCH_KEY = "buslineFromSearch";
+const NO_LEGS: PlanLeg[] = [];
 
 export function BusMapApp() {
   const searchParams = useSearchParams();
@@ -33,15 +33,15 @@ export function BusMapApp() {
   const [mode, setMode] = useState<PanelMode>("routes");
   const planner = usePlanState();
   const isPlanning = !uid && mode === "plan";
-  const ride = isPlanning ? planner.selectedRide : undefined;
-  const option = isPlanning ? planner.selectedOption : undefined;
+  const legs = isPlanning ? planner.legs : NO_LEGS;
+  const liveRide = legs.find((leg) => leg.isLiveRequested)?.ride;
 
-  // 路線頁看的路線，或規劃中選取的那條路線；線型與站序來自靜態檔，不耗 TDX 額度
-  const activeUid = uid ?? ride?.route.uid ?? null;
-  // 即時資料要呼叫 TDX：路線頁一律抓，規劃中只有使用者按了「查看下一班」才抓；同時只會有一條
-  const liveUid = uid ?? (planner.isLiveRequested ? ride?.route.uid : undefined) ?? null;
+  // 線型與站序來自靜態檔，不耗 TDX 額度：路線頁看的路線，以及規劃中各段選取的路線
   const index = useRouteIndex();
-  const detail = useRouteDetail(activeUid);
+  const detail = useRouteDetail(uid);
+  const rideDetails = useRouteDetails(legs.flatMap((leg) => (leg.ride ? [leg.ride.route.uid] : [])));
+  // 即時資料要呼叫 TDX：路線頁一律抓，規劃中只有使用者按了「查看下一班」才抓；同時只會有一條
+  const liveUid = uid ?? liveRide?.route.uid ?? null;
   const live = useRouteLive(liveUid);
 
   const [query, setQuery] = useState("");
@@ -65,36 +65,16 @@ export function BusMapApp() {
     document.title = uid && routeName ? `${routeName}・${APP_TITLE}` : APP_TITLE;
   }, [uid, routeName]);
 
-  // 規劃中選取的路線，該方向的站序（線型與上車站的到站時間都要用）
-  const rideDirection =
-    ride && detail.data?.uid === ride.route.uid
-      ? detail.data.directions.find((d) => d.direction === ride.direction)
-      : undefined;
-
-  const planOverlay = useMemo<PlanOverlay | null>(() => {
-    if (!isPlanning) return null;
-    const exactLine =
-      option && rideDirection && !rideDirection.isApproximate
-        ? sliceLineBetween(rideDirection.lines, option.board.position, option.alight.position)
-        : null;
-    return {
-      origin: planner.origin?.position ?? null,
-      destination: planner.destination?.position ?? null,
-      board: option?.board.position ?? null,
-      alight: option?.alight.position ?? null,
-      ride: exactLine ?? ride?.path ?? null,
-    };
-  }, [isPlanning, planner.origin, planner.destination, option, ride, rideDirection]);
-
-  const boardEta = useMemo<BoardEta>(() => {
-    if (!planner.isLiveRequested || !option || !ride) return { status: "idle" };
-    if ((live.error && !live.data) || (detail.error && !detail.data)) return { status: "error" };
-    if (!live.data || !detail.data) return { status: "loading" };
-    if (live.data.unavailable.includes("etas")) return { status: "error" };
-    const stops = rideDirection?.stops ?? [];
-    const i = nearestStopIndex(stops, option.board.position);
-    return { status: "ready", eta: i >= 0 ? live.data.etas[etaKey(ride.direction, stops[i].uid)] : undefined };
-  }, [planner.isLiveRequested, option, ride, rideDirection, live.data, live.error, detail.data, detail.error]);
+  // 地點、選取或線型改變時才重算，地圖才不會每次重繪都重新縮放
+  const planOverlay = useMemo<PlanOverlay | null>(
+    () => (isPlanning ? tripOverlay(planner.points, legs, rideDetails.data ?? {}) : null),
+    [isPlanning, planner.points, legs, rideDetails.data],
+  );
+  const boardEtas = legs.map((leg) => boardEtaOf(leg, { data: live.data, error: live.error }, rideDetails.data));
+  const renderPlanPoint = (order: number) => {
+    const info = pointBusInfo(planner.points, legs, order);
+    return info && <PlanPointPopup info={info} boardEta={boardEtas[info.leg] ?? { status: "idle" }} />;
+  };
 
   const openRoute = (route: RouteSummary, routeDirection?: number) => {
     if (routeDirection !== undefined) setDirectionChoice({ uid: route.uid, direction: routeDirection });
@@ -125,13 +105,15 @@ export function BusMapApp() {
     <>
       <MapView
         detail={uid ? (detail.data ?? null) : null}
-        direction={uid ? direction : (ride?.direction ?? 0)}
-        buses={liveUid ? (live.data?.buses ?? []) : []}
+        direction={direction}
+        // 規劃中只畫行程：整條路線的車輛位置散在乘車路段外，容易被誤認成定位標記；下一班看列表與資訊卡
+        buses={uid ? (live.data?.buses ?? []) : []}
         selectedStopUid={selectedStopUid}
         onStopClick={selectStop}
         padding={padding}
         scheme={isDark ? "dark" : "light"}
         plan={planOverlay}
+        renderPlanPoint={isPlanning ? renderPlanPoint : undefined}
       />
       <Panel isExpanded={isExpanded} onToggle={() => setExpanded((v) => !v)}>
         {uid ? (
@@ -164,22 +146,25 @@ export function BusMapApp() {
               />
             ) : (
               <PlanView
-                origin={planner.origin}
-                destination={planner.destination}
+                points={planner.points}
+                slotIds={planner.slotIds}
                 onPointChange={planner.setPoint}
-                onSwap={planner.swap}
+                onMove={planner.move}
+                canAddWaypoint={planner.canAddWaypoint}
+                onAddWaypoint={planner.addWaypoint}
+                onRemoveWaypoint={planner.removeWaypoint}
+                onReverse={planner.reverse}
                 locateStatus={planner.locator.status}
                 onUseCurrentLocation={() => void planner.pickCurrentLocation()}
                 near={planner.origin?.position ?? planner.locator.position}
-                result={planner.plan.data}
-                isPlanning={planner.plan.isLoading}
-                planError={planner.plan.error}
-                onRetryPlan={() => void planner.plan.mutate()}
-                selection={planner.selection}
+                legs={legs}
+                isPlanning={planner.trip.isLoading}
+                planError={planner.trip.error}
+                onRetryPlan={() => void planner.trip.mutate()}
                 onSelect={planner.select}
-                boardEta={boardEta}
+                boardEtas={boardEtas}
                 onRequestBoardEta={planner.requestLive}
-                onOpenRoute={(route) => openRoute(route, ride?.route.uid === route.uid ? ride.direction : undefined)}
+                onOpenRoute={(ride) => openRoute(ride.route, ride.direction)}
                 onEditStart={() => setExpanded(true)}
                 onEditEnd={() => setExpanded(false)}
               />

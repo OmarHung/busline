@@ -24,6 +24,8 @@
   /* 起訖點：深淺色都用同一組，和地圖上的「起」「迄」標記一致 */
   --terminal-start: #12a150;
   --terminal-end: #e0352b;
+  /* 路線規劃的經過點；和地圖上的編號標記一致 */
+  --waypoint: #475569;
   --shadow-panel: 0 1px 2px rgb(16 24 40 / 0.06), 0 12px 40px -12px rgb(16 24 40 / 0.35);
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   color-scheme: light;
@@ -71,6 +73,7 @@
   --color-live: var(--live);
   --color-terminal-start: var(--terminal-start);
   --color-terminal-end: var(--terminal-end);
+  --color-waypoint: var(--waypoint);
   --shadow-panel: var(--shadow-panel);
   --ease-out: var(--ease-out);
   --font-sans:
@@ -115,6 +118,39 @@ body {
   .maplibregl-ctrl-attrib-button {
     filter: invert(1);
   }
+}
+
+/* 路線規劃地點的資訊卡：配合深淺色；不接收滑鼠，蓋到標記時才不會 hover 閃爍 */
+.busline-popup {
+  pointer-events: none;
+}
+
+.busline-popup .maplibregl-popup-content {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface-solid);
+  color: var(--fg);
+  box-shadow: var(--shadow-panel);
+}
+
+.busline-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.busline-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.busline-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--surface-solid);
+}
+
+.busline-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.busline-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.busline-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--surface-solid);
+}
+
+.busline-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--surface-solid);
+}
+
+.busline-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--surface-solid);
 }
 
 /*

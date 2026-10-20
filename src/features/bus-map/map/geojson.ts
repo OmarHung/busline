@@ -1,4 +1,5 @@
 import type { LiveBus, LngLat, RouteDetail, RouteDirection } from "@/lib/types";
+import type { PointKind } from "../ui/plan/types";
 
 interface Feature<G, P> {
   type: "Feature";
@@ -105,14 +106,28 @@ export function boundsOf(direction: RouteDirection): [LngLat, LngLat] | null {
   return boundsOfPoints([...direction.lines.flat(), ...direction.stops.map((s) => s.position)]);
 }
 
-/** 路線規劃要畫在地圖上的東西；還沒有的部分為 null */
-export interface PlanOverlay {
-  origin: LngLat | null;
-  destination: LngLat | null;
-  board: LngLat | null;
-  alight: LngLat | null;
+/** 路線規劃要畫在地圖上的一個地點 */
+export interface PlanOverlayPoint {
+  kind: PointKind;
+  /** 標記上的字：起、終，或經過點的編號 */
+  label: string;
+  position: LngLat;
+}
+
+/** 一段行程選取的方案：從出發點走到上車站、搭公車、下車走到目的地 */
+export interface PlanOverlayLeg {
+  from: LngLat;
+  to: LngLat;
+  board: LngLat;
+  alight: LngLat;
   /** 實際坐到的那段公車路線 */
-  ride: LngLat[] | null;
+  ride: LngLat[];
+}
+
+/** 路線規劃要畫在地圖上的東西；還沒選好的地點、沒有方案的段都不在裡面 */
+export interface PlanOverlay {
+  points: PlanOverlayPoint[];
+  legs: PlanOverlayLeg[];
 }
 
 type LineString = { type: "LineString"; coordinates: LngLat[] };
@@ -124,37 +139,42 @@ export function planLineFeatures(plan: PlanOverlay | null): FeatureCollection<Li
     geometry: { type: "LineString" as const, coordinates },
     properties: { kind },
   });
-  const { origin, destination, board, alight, ride } = plan;
-  return collection([
-    ...(origin && board ? [line("walk", [origin, board])] : []),
-    ...(ride && ride.length >= 2 ? [line("ride", ride)] : []),
-    ...(alight && destination ? [line("walk", [alight, destination])] : []),
-  ]);
+  return collection(
+    plan.legs.flatMap(({ from, to, board, alight, ride }) => [
+      line("walk", [from, board]),
+      ...(ride.length >= 2 ? [line("ride", ride)] : []),
+      line("walk", [alight, to]),
+    ]),
+  );
 }
 
-export function planPointFeatures(
-  plan: PlanOverlay | null,
-): FeatureCollection<Point, { kind: "origin" | "destination" | "stop"; label: string }> {
+interface PlanPointProperties {
+  kind: PointKind | "stop";
+  label: string;
+  /** 起點、經過點、終點在 plan.points 中的位置，hover 時用來找對應的資訊；上下車站沒有 */
+  order?: number;
+}
+
+export function planPointFeatures(plan: PlanOverlay | null): FeatureCollection<Point, PlanPointProperties> {
   if (!plan) return collection([]);
-  const point = (kind: "origin" | "destination" | "stop", label: string, coordinates: LngLat) => ({
+  const point = (properties: PlanPointProperties, coordinates: LngLat) => ({
     type: "Feature" as const,
     geometry: { type: "Point" as const, coordinates },
-    properties: { kind, label },
+    properties,
   });
-  const { origin, destination, board, alight } = plan;
+  const stop = (coordinates: LngLat) => point({ kind: "stop", label: "" }, coordinates);
+  // 起終點與經過點的標記放在後面，畫在上下車站之上
   return collection([
-    ...(board ? [point("stop", "", board)] : []),
-    ...(alight ? [point("stop", "", alight)] : []),
-    ...(origin ? [point("origin", "起", origin)] : []),
-    ...(destination ? [point("destination", "終", destination)] : []),
+    ...plan.legs.flatMap(({ board, alight }) => [stop(board), stop(alight)]),
+    ...plan.points.map(({ kind, label, position }, order) => point({ kind, label, order }, position)),
   ]);
 }
 
 /** 規劃畫面要縮放到的範圍；沒有任何點時回傳 null */
 export function planBounds(plan: PlanOverlay | null): [LngLat, LngLat] | null {
   if (!plan) return null;
-  const points = [plan.origin, plan.destination, plan.board, plan.alight, ...(plan.ride ?? [])].filter(
-    (p): p is LngLat => p !== null,
-  );
-  return boundsOfPoints(points);
+  return boundsOfPoints([
+    ...plan.points.map((p) => p.position),
+    ...plan.legs.flatMap((leg) => [leg.board, leg.alight, ...leg.ride]),
+  ]);
 }

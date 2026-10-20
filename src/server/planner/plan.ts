@@ -1,6 +1,6 @@
 import { distanceMeters } from "@/lib/geo/nearest";
 import { directionHeadsign } from "@/lib/headsign";
-import type { LngLat, PlanOption, PlanResult, PlanRide, PlanStop, RouteSummary } from "@/lib/types";
+import type { LngLat, PlanOption, PlanResult, PlanRide, PlanStop, RouteSummary, TripPlan } from "@/lib/types";
 import type { NearbyStop, StopNetwork } from "./network";
 
 /** 先找 600 公尺內的站，找不到再放寬到 1 公里 */
@@ -134,4 +134,14 @@ export function planDirect(
     if (best.size > 0) return { options: groupByStops(network, best.values(), limit), directMeters };
   }
   return { options: [], directMeters };
+}
+
+/** 多點行程：起點 → 經過點… → 終點，每一段各自找直達方案（在經過點下車，再搭下一段） */
+export function planTrip(
+  network: StopNetwork,
+  routes: ReadonlyMap<string, RouteSummary>,
+  points: readonly LngLat[],
+  options: { limit?: number } = {},
+): TripPlan {
+  return { legs: points.slice(1).map((to, i) => planDirect(network, routes, points[i], to, options)) };
 }

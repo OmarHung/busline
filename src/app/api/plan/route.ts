@@ -1,17 +1,21 @@
 import type { NextRequest } from "next/server";
-import { badRequest, cachedJson, errorResponse, parseLngLat } from "@/server/http";
-import { planDirect } from "@/server/planner/plan";
+import { MAX_WAYPOINTS } from "@/lib/types";
+import { badRequest, cachedJson, errorResponse, parseLngLatList } from "@/server/http";
+import { planTrip } from "@/server/planner/plan";
 import { getRoutesByUid, getStopNetwork } from "@/server/planning";
 
-/** GET /api/plan?from=經度,緯度&to=經度,緯度 → 直達方案（只用預先產生的站序，不打 TDX） */
+/**
+ * GET /api/plan?points=經度,緯度;經度,緯度[;…] → 起點、經過點、終點之間各段的直達方案
+ * （只用預先產生的站序，不打 TDX）
+ */
 export function GET(request: NextRequest) {
-  const from = parseLngLat(request.nextUrl.searchParams.get("from"));
-  const to = parseLngLat(request.nextUrl.searchParams.get("to"));
-  if (!from || !to) return badRequest("起點或終點座標不正確");
+  const points = parseLngLatList(request.nextUrl.searchParams.get("points"));
+  if (!points || points.length < 2) return badRequest("起點、經過點或終點的座標不正確");
+  if (points.length > MAX_WAYPOINTS + 2) return badRequest(`經過點最多 ${MAX_WAYPOINTS} 個`);
 
   try {
-    const result = planDirect(getStopNetwork(), getRoutesByUid(), from, to);
-    return cachedJson(result, { sMaxAge: 3600, staleWhileRevalidate: 86_400 });
+    const trip = planTrip(getStopNetwork(), getRoutesByUid(), points);
+    return cachedJson(trip, { sMaxAge: 3600, staleWhileRevalidate: 86_400 });
   } catch (error) {
     return errorResponse(error, "GET /api/plan");
   }

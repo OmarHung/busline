@@ -2,61 +2,118 @@
 
 import type { ReactNode } from "react";
 import { formatEta } from "@/lib/eta";
-import type { PlanOption, PlanResult, RouteSummary, StopEta } from "@/lib/types";
+import type { PlanOption, PlanResult, PlanRide } from "@/lib/types";
 import { ChevronRightIcon, WalkIcon } from "../../icons";
 import { EtaChip } from "../EtaChip";
 import { RouteBadge } from "../RouteBadge";
 import { ErrorState } from "../SearchView";
-import { walkMinutes } from "./types";
+import { tripMinutes, type PlanLeg } from "./trip";
+import { walkMinutes, type BoardEta, type PlanSelection } from "./types";
 
 /** 起終點距離在這以內，建議直接走路 */
 const SHORT_WALK_METERS = 700;
 /** 卡片上最多列幾個路線號碼，其餘顯示 +N */
 const MAX_BADGES = 4;
 
-export interface PlanSelection {
-  option: number;
-  ride: number;
-}
-
-/** 選取路線在上車站的即時到站；要使用者按了才查（idle），避免耗用 TDX 額度 */
-export type BoardEta =
-  | { status: "idle" }
-  | { status: "loading" }
-  /** eta 為 undefined 表示這一站沒有到站資料 */
-  | { status: "ready"; eta: StopEta | undefined }
-  | { status: "error" };
-
 type Props = {
-  result: PlanResult | undefined;
+  legs: readonly PlanLeg[];
   isLoading: boolean;
   error: Error | undefined;
   onRetry: () => void;
-  selection: PlanSelection | null;
-  onSelect: (selection: PlanSelection) => void;
-  boardEta: BoardEta;
-  onRequestBoardEta: () => void;
-  onOpenRoute: (route: RouteSummary) => void;
+  onSelect: (leg: number, selection: PlanSelection) => void;
+  /** 與 legs 對應 */
+  boardEtas: readonly BoardEta[];
+  onRequestBoardEta: (leg: number) => void;
+  onOpenRoute: (ride: PlanRide) => void;
 };
 
+/** 規劃結果；只有一段時直接列方案，有經過點時每一段各自列出 */
 export function PlanResults({
-  result,
+  legs,
   isLoading,
   error,
   onRetry,
-  selection,
   onSelect,
-  boardEta,
+  boardEtas,
   onRequestBoardEta,
   onOpenRoute,
 }: Props) {
-  if (error && !result) return <ErrorState message={error.message} onRetry={onRetry} />;
-  if (isLoading || !result) return <ResultsSkeleton />;
+  const results = legs.map((leg) => leg.result);
+  const isComplete = results.every((result): result is PlanResult => result !== undefined);
+  if (error && !isComplete) return <ErrorState message={error.message} onRetry={onRetry} />;
+  if (isLoading || !isComplete) return <ResultsSkeleton />;
 
-  const isShortWalk = result.directMeters <= SHORT_WALK_METERS;
+  const isMultiLeg = legs.length > 1;
 
   return (
     <div className="px-3 pb-8">
+      {isMultiLeg && <TripSummary legs={legs} />}
+
+      {legs.map((leg, index) => (
+        <LegResults
+          key={leg.key}
+          leg={leg}
+          result={results[index]}
+          number={isMultiLeg ? index + 1 : null}
+          onSelect={(selection) => onSelect(index, selection)}
+          boardEta={boardEtas[index] ?? { status: "idle" }}
+          onRequestBoardEta={() => onRequestBoardEta(index)}
+          onOpenRoute={onOpenRoute}
+        />
+      ))}
+
+      <p className="mt-4 px-1 text-[11px] leading-relaxed text-fg-subtle">
+        {isMultiLeg
+          ? "時間為各段步行與乘車的估計，不含等車與在經過點停留；每一段只列出不用轉乘的公車。"
+          : "時間為步行與乘車的估計，不含等車；只列出不用轉乘的公車。"}
+      </p>
+    </div>
+  );
+}
+
+function TripSummary({ legs }: { legs: readonly PlanLeg[] }) {
+  const minutes = tripMinutes(legs);
+  return (
+    <p className="mx-1 mb-4 flex items-baseline gap-1.5 rounded-xl bg-surface-sunken px-3 py-2.5 text-sm text-fg-muted">
+      <span className="font-semibold text-fg">共 {legs.length} 段</span>
+      <span aria-hidden>·</span>
+      {minutes !== null ? (
+        <span>
+          步行與乘車約 <strong className="font-sign text-base font-bold text-fg tabular-nums">{minutes}</strong> 分鐘
+        </span>
+      ) : (
+        <span className="text-soon">有路段找不到直達公車</span>
+      )}
+    </p>
+  );
+}
+
+type LegProps = {
+  leg: PlanLeg;
+  result: PlanResult;
+  /** 第幾段；只有一段時為 null，不顯示段落標題 */
+  number: number | null;
+  onSelect: (selection: PlanSelection) => void;
+  boardEta: BoardEta;
+  onRequestBoardEta: () => void;
+  onOpenRoute: (ride: PlanRide) => void;
+};
+
+function LegResults({ leg, result, number, onSelect, boardEta, onRequestBoardEta, onOpenRoute }: LegProps) {
+  const { selection } = leg;
+  const isShortWalk = result.directMeters <= SHORT_WALK_METERS;
+
+  return (
+    <section className={number ? "mb-6" : undefined} aria-label={number ? `第 ${number} 段` : undefined}>
+      {number && (
+        <h3 className="mx-1 mb-2 flex min-w-0 items-baseline gap-2 text-sm">
+          <span className="shrink-0 font-semibold">第 {number} 段</span>
+          <span className="min-w-0 truncate text-fg-muted">
+            {leg.from.name} → {leg.to.name}
+          </span>
+        </h3>
+      )}
+
       {isShortWalk && (
         <p className="mx-1 mb-3 flex items-center gap-2 rounded-xl bg-surface-sunken px-3 py-2.5 text-sm text-fg-muted">
           <WalkIcon width={18} height={18} className="shrink-0" />
@@ -65,12 +122,12 @@ export function PlanResults({
       )}
 
       {result.options.length === 0 ? (
-        <div className="px-3 py-8 text-center text-sm text-fg-muted">
-          <p>附近找不到直達的公車</p>
-          <p className="mt-1 text-xs text-fg-subtle">目前只規劃不用轉乘的路線，可以試試換個起點或終點</p>
+        <div className={`px-3 text-center text-sm text-fg-muted ${number ? "py-4" : "py-8"}`}>
+          <p>{number ? "這一段附近找不到直達的公車" : "附近找不到直達的公車"}</p>
+          <p className="mt-1 text-xs text-fg-subtle">目前只規劃不用轉乘的路線，可以試試換個地點</p>
         </div>
       ) : (
-        <ol className="space-y-2" aria-label="直達方案">
+        <ol className="space-y-2" aria-label={number ? `第 ${number} 段直達方案` : "直達方案"}>
           {result.options.map((option, index) => (
             <li key={`${option.board.name}-${option.alight.name}`}>
               <OptionCard
@@ -86,11 +143,7 @@ export function PlanResults({
           ))}
         </ol>
       )}
-
-      <p className="mt-4 px-1 text-[11px] leading-relaxed text-fg-subtle">
-        時間為步行與乘車的估計，不含等車；只列出不用轉乘的公車。
-      </p>
-    </div>
+    </section>
   );
 }
 
@@ -102,7 +155,7 @@ type CardProps = {
   /** 只有選取的方案會展開顯示 */
   boardEta: BoardEta;
   onRequestBoardEta: () => void;
-  onOpenRoute: (route: RouteSummary) => void;
+  onOpenRoute: (ride: PlanRide) => void;
 };
 
 function OptionCard({ option, isSelected, rideIndex, onSelect, boardEta, onRequestBoardEta, onOpenRoute }: CardProps) {
@@ -184,7 +237,7 @@ function OptionCard({ option, isSelected, rideIndex, onSelect, boardEta, onReque
 
           <button
             type="button"
-            onClick={() => onOpenRoute(ride.route)}
+            onClick={() => onOpenRoute(ride)}
             className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl bg-surface-sunken py-2 text-sm text-fg-muted transition hover:text-fg"
           >
             查看 {ride.route.name} 完整路線

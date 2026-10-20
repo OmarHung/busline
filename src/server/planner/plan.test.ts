@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { LngLat } from "@/lib/types";
 import { NETWORK_INDEX, NETWORK_ROUTES } from "./fixtures";
 import { StopNetwork } from "./network";
-import { planDirect } from "./plan";
+import { planDirect, planTrip } from "./plan";
 
 const network = new StopNetwork(NETWORK_INDEX);
 const routes = new Map(NETWORK_ROUTES.map((r) => [r.uid, r]));
@@ -68,5 +68,22 @@ describe("planDirect", () => {
     const minutes = options.map((o) => o.rides[0].estimatedMinutes);
     expect(minutes).toEqual([...minutes].sort((a, b) => a - b));
     expect(plan([121.505, 25], [121.525, 25], 1).options).toHaveLength(1);
+  });
+});
+
+describe("planTrip", () => {
+  test("plans each leg between consecutive points on its own", () => {
+    const trip = planTrip(network, routes, [A, D, E]);
+
+    expect(trip.legs).toHaveLength(2);
+    expect(trip.legs[0]).toEqual(plan(A, D));
+    expect(trip.legs[1]).toEqual(plan(D, E));
+  });
+
+  test("keeps legs without a direct bus, so the others still show", () => {
+    const trip = planTrip(network, routes, [A, E, [121.6, 25.5]]);
+
+    expect(trip.legs[0].options).not.toHaveLength(0);
+    expect(trip.legs[1].options).toEqual([]);
   });
 });

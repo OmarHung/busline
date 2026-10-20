@@ -120,7 +120,11 @@ export async function mockApi(
   overrides: { indexStatus?: number; live?: Partial<RouteLive>; plan?: PlanResult } = {},
 ) {
   await page.route("**/api/places?**", (route) => route.fulfill({ json: { places: PLACES } }));
-  await page.route("**/api/plan?**", (route) => route.fulfill({ json: overrides.plan ?? PLAN_RESULT }));
+  // 每一段都回同一份方案；段數依 points（起點;經過點…;終點）決定
+  await page.route("**/api/plan?**", (route) => {
+    const points = new URL(route.request().url()).searchParams.get("points")?.split(";") ?? [];
+    return route.fulfill({ json: { legs: points.slice(1).map(() => overrides.plan ?? PLAN_RESULT) } });
+  });
   await page.route("**/api/routes", (route) =>
     overrides.indexStatus
       ? route.fulfill({ status: overrides.indexStatus, json: { error: "交通部 TDX 資料暫時無法取得，請稍後再試" } })
