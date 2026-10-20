@@ -4,9 +4,22 @@ import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { isValidRouteUid } from "@/lib/cities";
-import type { RouteSummary } from "@/lib/types";
-import { useMediaQuery, useRouteDetail, useRouteDetails, useRouteIndex, useRouteLive, useWindowHeight } from "./hooks";
-import type { PlanOverlay } from "./map/geojson";
+import type { LngLat, NearbyRoute, NearbyStation, RouteSummary } from "@/lib/types";
+import {
+  useCurrentPosition,
+  useMediaQuery,
+  useNearbyStations,
+  useRouteDetail,
+  useRouteDetails,
+  useRouteIndex,
+  useRouteLive,
+  useWindowHeight,
+} from "./hooks";
+import type { NearbyOverlay, PlanOverlay } from "./map/geojson";
+import type { Viewport } from "./map/MapView";
+import { MapNearbyButton } from "./ui/nearby/MapNearbyButton";
+import { NearbyView, type NearbySource } from "./ui/nearby/NearbyView";
+import { hintedStopUid, type StopHint } from "./ui/nearby/stop-hint";
 import { Panel, SHEET_COLLAPSED_RATIO } from "./ui/Panel";
 import { PanelHeader, type PanelMode } from "./ui/PanelHeader";
 import { PlanPointPopup } from "./ui/plan/PlanPointPopup";
@@ -35,6 +48,17 @@ export function BusMapApp() {
   const isPlanning = !uid && mode === "plan";
   const legs = isPlanning ? planner.legs : NO_LEGS;
   const liveRide = legs.find((leg) => leg.isLiveRequested)?.ride;
+  // 附近站牌用自己的定位：和規劃共用的話，先在這裡定位過，進規劃就不會自動把起點設成目前位置
+  const isNearby = !uid && mode === "nearby";
+  const nearbyLocator = useCurrentPosition();
+  // 也可以按地圖上的「在地圖上顯示附近站點」，改用地圖畫面的中心找
+  const [nearbySource, setNearbySource] = useState<NearbySource>("gps");
+  const [mapCenterOrigin, setMapCenterOrigin] = useState<LngLat | null>(null);
+  const nearbyOrigin = nearbySource === "map" ? mapCenterOrigin : nearbyLocator.position;
+  const nearby = useNearbyStations(isNearby ? nearbyOrigin : null);
+  const nearbyStations = isNearby ? nearby.data?.stations : undefined;
+  const [nearbyChoice, setNearbyChoice] = useState<string | null>(null);
+  const selectedNearbyId = nearbyStations?.some((s) => s.id === nearbyChoice) ? nearbyChoice : null;
 
   // 線型與站序來自靜態檔，不耗 TDX 額度：路線頁看的路線，以及規劃中各段選取的路線
   const index = useRouteIndex();
@@ -49,6 +73,11 @@ export function BusMapApp() {
   // 方向與選取的站都綁定路線，換路線時自動回到預設值
   const [directionChoice, setDirectionChoice] = useState<{ uid: string; direction: number } | null>(null);
   const [stopChoice, setStopChoice] = useState<{ key: string; stopUid: string } | null>(null);
+  // 從附近站牌點進路線時，預先選取使用者附近的那一站
+  const [stopHint, setStopHint] = useState<StopHint | null>(null);
+  // 顯示附近站點之後，使用者又拖曳或縮放了地圖，才再出現「在地圖上顯示附近站點」
+  const [viewport, setViewport] = useState<Viewport | null>(null);
+  const [hasMovedMap, setMovedMap] = useState(false);
 
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const isDark = useMediaQuery("(prefers-color-scheme: dark)");
@@ -57,7 +86,10 @@ export function BusMapApp() {
   const direction =
     directionChoice?.uid === uid ? directionChoice.direction : (detail.data?.directions[0]?.direction ?? 0);
   const stopKey = `${uid}:${direction}`;
-  const selectedStopUid = stopChoice?.key === stopKey ? stopChoice.stopUid : null;
+  const activeStops = detail.data?.directions.find((d) => d.direction === direction)?.stops ?? [];
+  const hintedUid =
+    stopHint?.uid === uid && stopHint.direction === direction ? hintedStopUid(activeStops, stopHint) : null;
+  const selectedStopUid = stopChoice?.key === stopKey ? stopChoice.stopUid : hintedUid;
   const summary = uid ? index.data?.routes.find((r) => r.uid === uid) : undefined;
   const routeName = detail.data?.name ?? summary?.name;
 
@@ -70,14 +102,22 @@ export function BusMapApp() {
     () => (isPlanning ? tripOverlay(planner.points, legs, rideDetails.data ?? {}) : null),
     [isPlanning, planner.points, legs, rideDetails.data],
   );
+  const nearbyOverlay = useMemo<NearbyOverlay | null>(
+    () =>
+      nearbyStations && nearbyOrigin
+        ? { center: nearbyOrigin, isCurrentLocation: nearbySource === "gps", stations: nearbyStations }
+        : null,
+    [nearbyStations, nearbyOrigin, nearbySource],
+  );
   const boardEtas = legs.map((leg) => boardEtaOf(leg, { data: live.data, error: live.error }, rideDetails.data));
   const renderPlanPoint = (order: number) => {
     const info = pointBusInfo(planner.points, legs, order);
     return info && <PlanPointPopup info={info} boardEta={boardEtas[info.leg] ?? { status: "idle" }} />;
   };
 
-  const openRoute = (route: RouteSummary, routeDirection?: number) => {
+  const openRoute = (route: RouteSummary, routeDirection?: number, hint: StopHint | null = null) => {
     if (routeDirection !== undefined) setDirectionChoice({ uid: route.uid, direction: routeDirection });
+    setStopHint(hint);
     // 標記在 history entry 上，瀏覽器上一頁／下一頁後仍然正確
     window.history.pushState({ [FROM_SEARCH_KEY]: true }, "", `?r=${encodeURIComponent(route.uid)}`);
     setExpanded(false);
@@ -89,8 +129,40 @@ export function BusMapApp() {
     else window.history.pushState(null, "", window.location.pathname);
   };
 
+  const openNearbyRoute = (station: NearbyStation, ride: NearbyRoute) =>
+    openRoute(ride.route, ride.direction, {
+      uid: ride.route.uid,
+      direction: ride.direction,
+      name: station.name,
+      position: ride.position,
+    });
+
+  const handleViewChange = (next: Viewport, isUserMove: boolean) => {
+    setViewport(next);
+    if (isUserMove) setMovedMap(true);
+  };
+  const showMapNearbyButton = !uid && !isPlanning && viewport !== null && (mode !== "nearby" || hasMovedMap);
+
+  const showNearbyAtMapCenter = () => {
+    if (!viewport) return;
+    setMapCenterOrigin(viewport.center);
+    setNearbySource("map");
+    setNearbyChoice(null);
+    setMovedMap(false);
+    setMode("nearby");
+  };
+
+  const locateForNearby = () => {
+    setNearbySource("gps");
+    setMovedMap(false);
+    void nearbyLocator.locate();
+  };
+
   const changeMode = (next: PanelMode) => {
     setMode(next);
+    if (next === "nearby") setMovedMap(false);
+    // 第一次進附近站牌時自動定位；之後要使用者按「重新定位」
+    if (next === "nearby" && nearbySource === "gps" && nearbyLocator.status === "idle") void nearbyLocator.locate();
     // 第一次進規劃時，起點預設用目前位置
     if (next === "plan" && !planner.origin && planner.locator.status === "idle") void planner.pickCurrentLocation();
   };
@@ -114,7 +186,12 @@ export function BusMapApp() {
         scheme={isDark ? "dark" : "light"}
         plan={planOverlay}
         renderPlanPoint={isPlanning ? renderPlanPoint : undefined}
+        nearby={nearbyOverlay}
+        selectedNearbyId={selectedNearbyId}
+        onNearbyStationClick={setNearbyChoice}
+        onViewChange={handleViewChange}
       />
+      {showMapNearbyButton && <MapNearbyButton zoom={viewport.zoom} onClick={showNearbyAtMapCenter} />}
       <Panel isExpanded={isExpanded} onToggle={() => setExpanded((v) => !v)}>
         {uid ? (
           <RouteView
@@ -143,6 +220,18 @@ export function BusMapApp() {
                 onQueryChange={setQuery}
                 onSelect={(route) => openRoute(route)}
                 onFocus={() => setExpanded(true)}
+              />
+            ) : mode === "nearby" ? (
+              <NearbyView
+                source={nearbySource}
+                locateStatus={nearbyLocator.status}
+                onLocate={locateForNearby}
+                stations={nearbyStations}
+                error={nearby.error}
+                onRetry={() => void nearby.mutate()}
+                selectedId={selectedNearbyId}
+                onSelect={setNearbyChoice}
+                onOpenRoute={openNearbyRoute}
               />
             ) : (
               <PlanView

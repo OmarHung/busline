@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import useSWR from "swr";
-import type { LngLat, Place, RouteDetail, RouteIndex, RouteLive, TripPlan } from "@/lib/types";
+import type { LngLat, NearbyStation, Place, RouteDetail, RouteIndex, RouteLive, TripPlan } from "@/lib/types";
 import type { RouteDetails } from "./ui/plan/trip";
 
 /** 即時資料更新間隔，配合伺服器端 30 秒快取（TDX 免費額度每分鐘 5 次） */
@@ -70,6 +70,12 @@ export function usePlaces(query: string, near: LngLat | null) {
   const q = query.trim();
   const key = q ? `/api/places?q=${encodeURIComponent(q)}${near ? `&near=${coord(near, 3)}` : ""}` : null;
   return useSWR<{ places: Place[] }, Error>(key, fetchJson, { ...STATIC_OPTIONS, keepPreviousData: true });
+}
+
+/** 附近的站與可搭的路線；位置只取到小數 4 位（約 10 公尺），讓快取比較容易命中 */
+export function useNearbyStations(position: LngLat | null) {
+  const key = position ? `/api/nearby?at=${coord(position, 4)}` : null;
+  return useSWR<{ stations: NearbyStation[] }, Error>(key, fetchJson, { ...STATIC_OPTIONS, keepPreviousData: true });
 }
 
 /** 起點、經過點…、終點之間各段的直達方案 */

@@ -1,5 +1,5 @@
 import { test } from "@playwright/test";
-import { mockApi } from "./fixtures";
+import { BANQIAO, mockApi } from "./fixtures";
 
 // 只在 VISUAL_OUT 有設定時執行：輸出各種狀態的截圖供人工檢查
 const OUT = process.env.VISUAL_OUT;
@@ -26,6 +26,17 @@ for (const c of cases) {
       await page.getByRole("button", { name: /忠孝復興/ }).waitFor();
       await page.waitForTimeout(3500);
       await page.screenshot({ path: `${OUT}/${c.name}-route.png` });
+    });
+
+    test("nearby", async ({ page, context }) => {
+      await context.grantPermissions(["geolocation"]);
+      await context.setGeolocation({ longitude: BANQIAO[0], latitude: BANQIAO[1] });
+      await mockApi(page);
+      await page.goto("/");
+      await page.getByRole("tab", { name: "附近站牌" }).click();
+      await page.getByRole("list", { name: "附近的公車站" }).waitFor();
+      await page.waitForTimeout(3500);
+      await page.screenshot({ path: `${OUT}/${c.name}-nearby.png` });
     });
   });
 }

@@ -178,3 +178,46 @@ export function planBounds(plan: PlanOverlay | null): [LngLat, LngLat] | null {
     ...plan.legs.flatMap((leg) => [leg.board, leg.alight, ...leg.ride]),
   ]);
 }
+
+/** 附近站牌畫面要畫在地圖上的東西：找附近的中心點與附近各站的站牌 */
+export interface NearbyOverlay {
+  center: LngLat;
+  /** 中心點是定位到的目前位置；否則是使用者在地圖上選的中心 */
+  isCurrentLocation: boolean;
+  stations: ReadonlyArray<{ id: string; name: string; positions: readonly LngLat[] }>;
+}
+
+interface NearbyPointProperties {
+  /** here：目前位置；center：地圖中心 */
+  kind: "here" | "center" | "stop";
+  /** 站牌所屬的站，點地圖時用來找列表上的哪一站；中心點為空字串 */
+  station: string;
+  name: string;
+  selected: boolean;
+}
+
+export function nearbyFeatures(
+  overlay: NearbyOverlay | null,
+  selectedId: string | null,
+): FeatureCollection<Point, NearbyPointProperties> {
+  if (!overlay) return collection([]);
+  const point = (properties: NearbyPointProperties, coordinates: LngLat) => ({
+    type: "Feature" as const,
+    geometry: { type: "Point" as const, coordinates },
+    properties,
+  });
+  // 中心點放在最後，畫在站牌之上
+  const centerKind = overlay.isCurrentLocation ? "here" : "center";
+  return collection([
+    ...overlay.stations.flatMap(({ id, name, positions }) =>
+      positions.map((position) => point({ kind: "stop", station: id, name, selected: id === selectedId }, position)),
+    ),
+    point({ kind: centerKind, station: "", name: "", selected: false }, overlay.center),
+  ]);
+}
+
+/** 附近站牌畫面要縮放到的範圍；沒有資料時回傳 null */
+export function nearbyBounds(overlay: NearbyOverlay | null): [LngLat, LngLat] | null {
+  if (!overlay) return null;
+  return boundsOfPoints([overlay.center, ...overlay.stations.flatMap((s) => s.positions)]);
+}

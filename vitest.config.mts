@@ -15,6 +15,7 @@ export default defineConfig({
         "**/*.test.ts",
         "src/lib/types.ts",
         "src/features/**/hooks.ts",
+        "src/features/**/ui/scroll.ts",
         "src/features/**/map/layers.ts",
         "src/server/route-index/data.ts",
       ],

@@ -49,6 +49,7 @@ export const SOURCE = {
   buses: "busline-buses",
   planLines: "busline-plan-lines",
   planPoints: "busline-plan-points",
+  nearby: "busline-nearby",
 } as const;
 
 export const STOP_LAYER = "busline-stops";
@@ -290,6 +291,77 @@ function installPlanLayers(map: MapLibreMap, palette: MapPalette, scheme: ColorS
   });
 }
 
+/** 附近站牌：點一下會在列表上找到那一站 */
+export const NEARBY_STOP_LAYER = "busline-nearby-stops";
+
+/** 附近站牌：各站的站牌（選取的站填滿）、站名，以及目前位置或地圖中心 */
+function installNearbyLayers(map: MapLibreMap, palette: MapPalette): void {
+  const isStop = ofKind("stop");
+  const isHere = ofKind("here");
+  map.addLayer({
+    id: NEARBY_STOP_LAYER,
+    type: "circle",
+    source: SOURCE.nearby,
+    filter: isStop,
+    paint: {
+      "circle-radius": byZoom(13, ["case", isSelected, 7, 4.5], 17, ["case", isSelected, 10, 7]),
+      "circle-color": ["case", isSelected, palette.route, palette.stopFill],
+      "circle-stroke-color": ["case", isSelected, palette.routeCasing, palette.route],
+      "circle-stroke-width": ["case", isSelected, 3, 2.5],
+    },
+  });
+  map.addLayer({
+    id: "busline-nearby-labels",
+    type: "symbol",
+    source: SOURCE.nearby,
+    filter: isStop,
+    minzoom: 15,
+    layout: {
+      "text-field": ["get", "name"],
+      "text-font": TEXT_FONT,
+      "text-size": ["case", isSelected, 14, 12],
+      "text-offset": [0, 1.1],
+      "text-anchor": "top",
+      "text-optional": true,
+      // 選取的站先放，標籤互相擠的時候優先顯示
+      "symbol-sort-key": ["case", isSelected, 0, 1],
+    },
+    paint: { "text-color": palette.label, "text-halo-color": palette.labelHalo, "text-halo-width": 1.5 },
+  });
+  map.addLayer({
+    id: "busline-nearby-here-halo",
+    type: "circle",
+    source: SOURCE.nearby,
+    filter: isHere,
+    paint: { "circle-radius": 20, "circle-color": palette.route, "circle-opacity": 0.16 },
+  });
+  map.addLayer({
+    id: "busline-nearby-here",
+    type: "circle",
+    source: SOURCE.nearby,
+    filter: isHere,
+    paint: {
+      "circle-radius": 8,
+      "circle-color": palette.route,
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 3,
+    },
+  });
+  // 地圖中心用中性色的小標記，不和目前位置的藍點混淆
+  map.addLayer({
+    id: "busline-nearby-center",
+    type: "circle",
+    source: SOURCE.nearby,
+    filter: ofKind("center"),
+    paint: {
+      "circle-radius": 7,
+      "circle-color": palette.label,
+      "circle-stroke-color": palette.labelHalo,
+      "circle-stroke-width": 3,
+    },
+  });
+}
+
 /** 每次底圖樣式載入（含切換深淺色）後都要重新加上路線圖層 */
 export function installRouteLayers(map: MapLibreMap, scheme: ColorScheme): void {
   const palette = PALETTES[scheme];
@@ -300,6 +372,7 @@ export function installRouteLayers(map: MapLibreMap, scheme: ColorScheme): void 
   map.addSource(SOURCE.buses, { type: "geojson", data: EMPTY });
   map.addSource(SOURCE.planLines, { type: "geojson", data: EMPTY });
   map.addSource(SOURCE.planPoints, { type: "geojson", data: EMPTY });
+  map.addSource(SOURCE.nearby, { type: "geojson", data: EMPTY });
 
   // 路線畫在所有底圖圖層之上：深色底圖的文字外框很粗，放在文字下面線會被切斷
   const lineLayout = { "line-join": "round", "line-cap": "round" } as const;
@@ -390,6 +463,7 @@ export function installRouteLayers(map: MapLibreMap, scheme: ColorScheme): void 
 
   installTerminalLayers(map, palette);
   installPlanLayers(map, palette, scheme);
+  installNearbyLayers(map, palette);
 
   const busImage = busImageId(scheme);
   if (!map.hasImage(busImage)) map.addImage(busImage, drawBusImage(palette.bus), { pixelRatio: 2 });

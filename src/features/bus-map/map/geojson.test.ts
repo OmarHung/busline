@@ -3,11 +3,14 @@ import type { LiveBus, RouteDetail, RouteDirection } from "@/lib/types";
 import {
   boundsOf,
   busesFeatures,
+  nearbyBounds,
+  nearbyFeatures,
   planBounds,
   planLineFeatures,
   planPointFeatures,
   routeLineFeatures,
   stopFeatures,
+  type NearbyOverlay,
   type PlanOverlay,
 } from "./geojson";
 
@@ -182,5 +185,51 @@ describe("plan overlay", () => {
     expect(planBounds(null)).toBeNull();
     expect(planLineFeatures(null).features).toEqual([]);
     expect(planPointFeatures(null).features).toEqual([]);
+  });
+});
+
+describe("nearby overlay", () => {
+  const overlay: NearbyOverlay = {
+    center: [121.5, 25],
+    isCurrentLocation: true,
+    stations: [
+      {
+        id: "7",
+        name: "板橋車站",
+        positions: [
+          [121.501, 25.001],
+          [121.501, 25.0013],
+        ],
+      },
+      { id: "9", name: "新埔", positions: [[121.497, 25.004]] },
+    ],
+  };
+
+  test("draws every pole of each station, then the current location on top", () => {
+    const features = nearbyFeatures(overlay, "9").features;
+
+    expect(features.map((f) => [f.properties.kind, f.properties.station, f.properties.selected])).toEqual([
+      ["stop", "7", false],
+      ["stop", "7", false],
+      ["stop", "9", true],
+      ["here", "", false],
+    ]);
+    expect(features[0].properties.name).toBe("板橋車站");
+    expect(features[3].geometry.coordinates).toEqual([121.5, 25]);
+  });
+
+  test("marks the map center differently from the current location", () => {
+    const fromMap = nearbyFeatures({ ...overlay, isCurrentLocation: false }, null).features;
+
+    expect(fromMap.at(-1)?.properties.kind).toBe("center");
+  });
+
+  test("bounds cover the current location and every pole", () => {
+    expect(nearbyBounds(overlay)).toEqual([
+      [121.497, 25],
+      [121.501, 25.004],
+    ]);
+    expect(nearbyBounds(null)).toBeNull();
+    expect(nearbyFeatures(null, null).features).toEqual([]);
   });
 });

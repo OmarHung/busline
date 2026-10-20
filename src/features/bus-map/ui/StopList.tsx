@@ -6,6 +6,7 @@ import { nearestStopIndex } from "@/lib/geo/nearest";
 import { etaKey, type LiveBus, type RouteLive, type Stop } from "@/lib/types";
 import { BusIcon } from "../icons";
 import { EtaChip } from "./EtaChip";
+import { scrollRowIntoView } from "./scroll";
 
 type Props = {
   stops: readonly Stop[];
@@ -14,23 +15,6 @@ type Props = {
   selectedStopUid: string | null;
   onSelect: (uid: string) => void;
 };
-
-const ROW_SCROLL_MARGIN = 12;
-
-/**
- * 只捲動列表本身（scrollIntoView 會連外層一起捲，把整頁推走）。
- * 手機面板收合時列表下半部在螢幕外，所以只算看得到的範圍。
- */
-function scrollRowIntoView(container: HTMLElement, row: HTMLElement): void {
-  const box = container.getBoundingClientRect();
-  const rowBox = row.getBoundingClientRect();
-  const visibleBottom = Math.min(box.bottom, window.innerHeight);
-  const isVisible = rowBox.top >= box.top && rowBox.bottom <= visibleBottom;
-  if (isVisible) return;
-
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  container.scrollBy({ top: rowBox.top - box.top - ROW_SCROLL_MARGIN, behavior: reduceMotion ? "auto" : "smooth" });
-}
 
 /** 把每台公車歸到最近的站 */
 function busesByStop(stops: readonly Stop[], buses: readonly LiveBus[]): Map<number, LiveBus[]> {

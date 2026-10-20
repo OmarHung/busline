@@ -1,9 +1,10 @@
 import { BusIcon } from "../icons";
 
-export type PanelMode = "routes" | "plan";
+export type PanelMode = "routes" | "nearby" | "plan";
 
 const MODES: Array<{ value: PanelMode; label: string }> = [
   { value: "routes", label: "找路線" },
+  { value: "nearby", label: "附近站牌" },
   { value: "plan", label: "路線規劃" },
 ];
 
@@ -14,7 +15,7 @@ type Props = {
 
 export function PanelHeader({ mode, onModeChange }: Props) {
   return (
-    <div className="flex items-center justify-between gap-3 px-5 pt-3 pb-3 md:pt-6">
+    <div className="px-5 pt-3 pb-3 md:pt-6">
       <div className="flex items-center gap-2.5">
         <span className="grid size-9 place-items-center rounded-[10px] bg-route text-route-ink shadow-sm">
           <BusIcon width={20} height={20} />
@@ -25,7 +26,8 @@ export function PanelHeader({ mode, onModeChange }: Props) {
         </div>
       </div>
 
-      <div role="tablist" aria-label="功能" className="flex shrink-0 rounded-[10px] bg-surface-sunken p-0.5">
+      {/* 三個分頁放在標題旁邊會超出手機寬度，所以獨立一列、等寬排列 */}
+      <div role="tablist" aria-label="功能" className="mt-3 grid grid-cols-3 rounded-[10px] bg-surface-sunken p-0.5">
         {MODES.map(({ value, label }) => {
           const isActive = value === mode;
           return (
@@ -35,7 +37,7 @@ export function PanelHeader({ mode, onModeChange }: Props) {
               role="tab"
               aria-selected={isActive}
               onClick={() => onModeChange(value)}
-              className={`rounded-[8px] px-2.5 py-1.5 text-xs transition ${
+              className={`rounded-[8px] px-2 py-1.5 text-[13px] transition ${
                 isActive ? "bg-surface-solid font-semibold text-fg shadow-sm" : "text-fg-muted hover:text-fg"
               }`}
             >

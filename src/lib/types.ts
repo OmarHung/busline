@@ -124,6 +124,26 @@ export interface PlanResult {
   directMeters: number;
 }
 
+/** 附近站牌可以上車的一條路線（一個方向） */
+export interface NearbyRoute {
+  route: RouteSummary;
+  direction: number;
+  headsign: string;
+  /** 這個方向停靠的那支站牌；同名站牌常分在路的兩側 */
+  position: LngLat;
+}
+
+/** 附近的站：同名、相距不遠的站牌合成一站 */
+export interface NearbyStation {
+  id: string;
+  name: string;
+  /** 到最近一支站牌的直線距離 */
+  meters: number;
+  /** 各支站牌的位置，近的在前 */
+  positions: LngLat[];
+  routes: NearbyRoute[];
+}
+
 /** 路線規劃最多幾個經過點（不含起點、終點） */
 export const MAX_WAYPOINTS = 3;
 

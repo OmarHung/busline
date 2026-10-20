@@ -139,7 +139,7 @@ function Hint({ isLoading, generatedAt, onPick }: HintProps) {
   );
 }
 
-function LoadingRows() {
+export function LoadingRows() {
   return (
     <div className="space-y-1 px-3 pt-3" aria-busy="true" aria-label="載入中">
       {Array.from({ length: 6 }, (_, i) => (

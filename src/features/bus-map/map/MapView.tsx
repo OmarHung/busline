@@ -16,16 +16,20 @@ import type { LiveBus, LngLat, RouteDetail } from "@/lib/types";
 import {
   boundsOf,
   busesFeatures,
+  nearbyBounds,
+  nearbyFeatures,
   planBounds,
   planLineFeatures,
   planPointFeatures,
   routeLineFeatures,
   stopFeatures,
+  type NearbyOverlay,
   type PlanOverlay,
 } from "./geojson";
 import {
   installRouteLayers,
   MAP_STYLE_URLS,
+  NEARBY_STOP_LAYER,
   PLAN_POINT_LAYER,
   setSourceData,
   SOURCE,
@@ -55,10 +59,15 @@ const TAIWAN_BOUNDS: [[number, number], [number, number]] = [
 ];
 const ROUTE_MAX_ZOOM = 15.5;
 const STOP_FOCUS_ZOOM = 15.5;
+/** 附近站牌都在步行範圍內，可以放得比路線大 */
+const NEARBY_MAX_ZOOM = 16.5;
 /** 資訊卡離標記中心的距離（標記半徑 11px） */
 const POPUP_OFFSET = 16;
 
 export type Insets = { top: number; bottom: number; left: number; right: number };
+
+/** 地圖目前的中心（扣掉面板遮住的範圍）與縮放等級 */
+export type Viewport = { center: LngLat; zoom: number };
 
 type Props = {
   detail: RouteDetail | null;
@@ -72,6 +81,12 @@ type Props = {
   plan: PlanOverlay | null;
   /** hover（手機為點一下）規劃地點時資訊卡的內容；order 是 plan.points 的位置 */
   renderPlanPoint?: (order: number) => ReactNode;
+  /** 附近站牌模式要畫的目前位置與各站站牌 */
+  nearby: NearbyOverlay | null;
+  selectedNearbyId: string | null;
+  onNearbyStationClick: (id: string) => void;
+  /** 每次地圖停止移動時回報；isUserMove 表示是使用者拖曳或縮放的，不是程式自動縮放 */
+  onViewChange: (viewport: Viewport, isUserMove: boolean) => void;
   scheme: ColorScheme;
 };
 
@@ -95,6 +110,10 @@ export default function MapView({
   scheme,
   plan,
   renderPlanPoint,
+  nearby,
+  selectedNearbyId,
+  onNearbyStationClick,
+  onViewChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -102,6 +121,8 @@ export default function MapView({
   const schemeRef = useRef(scheme);
   const paddingRef = useRef(padding);
   const onStopClickRef = useRef(onStopClick);
+  const onNearbyStationClickRef = useRef(onNearbyStationClick);
+  const onViewChangeRef = useRef(onViewChange);
   const pointsKey = pointsKeyOf(plan);
   const pointsKeyRef = useRef(pointsKey);
   /** 每次底圖樣式載入完成就 +1，讓資料 effect 重新寫入圖層 */
@@ -113,6 +134,8 @@ export default function MapView({
   useEffect(() => {
     paddingRef.current = padding;
     onStopClickRef.current = onStopClick;
+    onNearbyStationClickRef.current = onNearbyStationClick;
+    onViewChangeRef.current = onViewChange;
     pointsKeyRef.current = pointsKey;
   });
 
@@ -146,6 +169,12 @@ export default function MapView({
         const uid = e.features?.[0]?.properties?.uid;
         if (typeof uid === "string") onStopClickRef.current(uid);
       });
+    }
+    map.on("click", NEARBY_STOP_LAYER, (e) => {
+      const station = e.features?.[0]?.properties?.station;
+      if (typeof station === "string") onNearbyStationClickRef.current(station);
+    });
+    for (const layer of [STOP_LAYER, TERMINAL_LAYER, NEARBY_STOP_LAYER]) {
       map.on("mouseenter", layer, () => {
         map.getCanvas().style.cursor = "pointer";
       });
@@ -171,6 +200,14 @@ export default function MapView({
         : [];
       showPoint(orderOf(feature));
     });
+    const reportView = (isUserMove: boolean) => {
+      const { lng, lat } = map.getCenter();
+      onViewChangeRef.current({ center: [lng, lat], zoom: map.getZoom() }, isUserMove);
+    };
+    // 使用者拖曳、縮放（含縮放按鈕）時事件才帶 originalEvent；fitBounds 等程式移動沒有
+    map.on("moveend", (e) => reportView(e.originalEvent !== undefined));
+    reportView(false);
+
     popupRef.current = new Popup({
       closeButton: false,
       closeOnClick: false,
@@ -225,6 +262,34 @@ export default function MapView({
     setSourceData(map, SOURCE.planLines, planLineFeatures(plan));
     setSourceData(map, SOURCE.planPoints, planPointFeatures(plan));
   }, [styleVersion, plan]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || styleVersion === 0) return;
+    setSourceData(map, SOURCE.nearby, nearbyFeatures(nearby, selectedNearbyId));
+  }, [styleVersion, nearby, selectedNearbyId]);
+
+  // 重新定位或附近的站改變時，縮放到目前位置與附近的站
+  const nearbyBoundsKey = JSON.stringify(nearbyBounds(nearby));
+  useEffect(() => {
+    const map = mapRef.current;
+    const bounds = JSON.parse(nearbyBoundsKey) as [LngLat, LngLat] | null;
+    if (!map || !bounds) return;
+    map.fitBounds(bounds, { maxZoom: NEARBY_MAX_ZOOM, duration: 900 });
+  }, [nearbyBoundsKey]);
+
+  // 在列表選了一站時，把地圖移到那一站最近的站牌
+  const selectedNearbyPosition = nearby?.stations.find((s) => s.id === selectedNearbyId)?.positions[0];
+  const selectedNearbyKey = selectedNearbyPosition?.join(",") ?? null;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selectedNearbyKey) return;
+    map.easeTo({
+      center: selectedNearbyKey.split(",").map(Number) as LngLat,
+      zoom: Math.max(map.getZoom(), STOP_FOCUS_ZOOM),
+      duration: 600,
+    });
+  }, [selectedNearbyKey]);
 
   // 規劃的地點或選的方案改變、行程範圍跟著變時，縮放到整趟行程；
   // 只看範圍：按「查看下一班」之類不影響範圍的更新，不會把使用者移動過的視角拉回來

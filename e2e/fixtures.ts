@@ -1,5 +1,14 @@
 import type { Page } from "@playwright/test";
-import type { LngLat, Place, PlanResult, RouteDetail, RouteIndex, RouteLive, Stop } from "../src/lib/types";
+import type {
+  LngLat,
+  NearbyStation,
+  Place,
+  PlanResult,
+  RouteDetail,
+  RouteIndex,
+  RouteLive,
+  Stop,
+} from "../src/lib/types";
 
 const OUTBOUND: Array<[string, LngLat]> = [
   ["板橋", [121.4626, 25.0136]],
@@ -114,12 +123,48 @@ export const PLAN_RESULT: PlanResult = {
   ],
 };
 
+/** BANQIAO 附近的站：板橋車站兩個方向都能搭 307；新埔有 8 條路線，列表會先收合 */
+export const NEARBY_STATIONS: NearbyStation[] = [
+  {
+    id: "101",
+    name: "板橋車站",
+    meters: 120,
+    positions: [outboundStops[1].position],
+    routes: [
+      { route: ROUTE_INDEX.routes[0], direction: 0, headsign: "往 撫遠街", position: outboundStops[1].position },
+      { route: ROUTE_INDEX.routes[0], direction: 1, headsign: "往 板橋", position: inboundStops[9].position },
+    ],
+  },
+  {
+    id: "102",
+    name: "板橋",
+    meters: 150,
+    positions: [outboundStops[0].position],
+    routes: [
+      { route: ROUTE_INDEX.routes[0], direction: 0, headsign: "往 撫遠街", position: outboundStops[0].position },
+    ],
+  },
+  {
+    id: "103",
+    name: "新埔",
+    meters: 480,
+    positions: [outboundStops[2].position],
+    routes: Array.from({ length: 8 }, (_, i) => ({
+      route: { uid: `NWT90${i}`, name: `9${i}`, cityCode: "NWT", from: "新埔", to: "板橋" },
+      direction: 0,
+      headsign: "往 板橋",
+      position: outboundStops[2].position,
+    })),
+  },
+];
+
 /** 攔截 API 與預先產生的路線詳情靜態檔，回傳固定資料；fixture 以外的路線沒有詳情檔（404） */
 export async function mockApi(
   page: Page,
   overrides: { indexStatus?: number; live?: Partial<RouteLive>; plan?: PlanResult } = {},
 ) {
   await page.route("**/api/places?**", (route) => route.fulfill({ json: { places: PLACES } }));
+  await page.route("**/api/nearby?**", (route) => route.fulfill({ json: { stations: NEARBY_STATIONS } }));
   // 每一段都回同一份方案；段數依 points（起點;經過點…;終點）決定
   await page.route("**/api/plan?**", (route) => {
     const points = new URL(route.request().url()).searchParams.get("points")?.split(";") ?? [];
