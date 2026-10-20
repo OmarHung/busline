@@ -24,32 +24,19 @@ const ROUTES: RouteSummary[] = [
   { uid: "THB1610", name: "1610", cityCode: "THB", from: "臺北", to: "高雄" },
 ];
 
-const stops307 = [
-  {
-    RouteUID: "TPE16111",
-    Direction: 0,
-    Stops: [
-      {
-        StopUID: "s1",
-        StopName: { Zh_tw: "板橋" },
-        StopSequence: 1,
-        StopPosition: { PositionLon: 121.5, PositionLat: 25 },
-      },
-      {
-        StopUID: "s2",
-        StopName: { Zh_tw: "撫遠街" },
-        StopSequence: 2,
-        StopPosition: { PositionLon: 121.6, PositionLat: 25 },
-      },
-    ],
-  },
-];
-
-const routeHandlers: Record<string, Handler> = {
-  "Bus/Shape/City/Taipei/307": () => [
-    { RouteUID: "TPE16111", Direction: 0, Geometry: "LINESTRING(121.5 25,121.55 25.01,121.6 25)" },
+const liveHandlers: Record<string, Handler> = {
+  "Bus/EstimatedTimeOfArrival/City/Taipei/307": () => [
+    { RouteUID: "TPE16111", StopUID: "s1", Direction: 0, EstimateTime: 240, StopStatus: 0 },
   ],
-  "Bus/StopOfRoute/City/Taipei/307": () => stops307,
+  "Bus/RealTimeByFrequency/City/Taipei/307": () => [
+    {
+      PlateNumb: "EAL-0001",
+      RouteUID: "TPE16111",
+      Direction: 0,
+      BusPosition: { PositionLon: 121.52, PositionLat: 25 },
+      Azimuth: 80,
+    },
+  ],
 };
 
 /** 拿掉某一類 API，模擬該 API 失敗 */
@@ -67,102 +54,7 @@ const setup = (handlers: Record<string, Handler>) => {
   return { client, service };
 };
 
-describe("getRouteDetail", () => {
-  test("queries shape and stops by route name, filtered to the uid", async () => {
-    const { service, client } = setup(routeHandlers);
-
-    const detail = await service.getRouteDetail("TPE16111");
-
-    expect(detail.name).toBe("307");
-    expect(detail.directions[0].lines[0]).toHaveLength(3);
-    expect(detail.directions[0].headsign).toBe("往 撫遠街");
-    const shapeCall = client.list.mock.calls.find(([path]) => path.startsWith("Bus/Shape"));
-    expect(shapeCall?.[2]).toEqual({ $filter: "RouteUID eq 'TPE16111'" });
-  });
-
-  test("takes the route name from the static index, so opening a route costs only two TDX calls", async () => {
-    const { service, client } = setup(routeHandlers);
-
-    await service.getRouteDetail("TPE16111");
-
-    expect(client.list.mock.calls.map(([path]) => path).sort()).toEqual([
-      "Bus/Shape/City/Taipei/307",
-      "Bus/StopOfRoute/City/Taipei/307",
-    ]);
-  });
-
-  test("uses the InterCity path for highway buses", async () => {
-    const { service, client } = setup({
-      "Bus/Shape/InterCity/1610": () => [],
-      "Bus/StopOfRoute/InterCity/1610": () => [],
-    });
-
-    await service.getRouteDetail("THB1610");
-
-    expect(client.list).toHaveBeenCalledTimes(2);
-  });
-
-  test("url-encodes route names in the path, including parentheses", async () => {
-    const { service, client } = setup({
-      "Bus/Shape/City/Taipei/%E7%B4%855%28%E5%89%AF%29": () => [],
-      "Bus/StopOfRoute/City/Taipei/%E7%B4%855%28%E5%89%AF%29": () => [],
-    });
-
-    await service.getRouteDetail("TPE1");
-
-    expect(client.list.mock.calls.map(([path]) => path)).toContain("Bus/Shape/City/Taipei/%E7%B4%855%28%E5%89%AF%29");
-  });
-
-  test("falls back to connecting the stops when the shape request fails", async () => {
-    const { service } = setup(without(routeHandlers, "Bus/Shape"));
-
-    const detail = await service.getRouteDetail("TPE16111");
-
-    expect(detail.directions[0].isApproximate).toBe(true);
-    expect(detail.directions[0].lines[0]).toHaveLength(2);
-  });
-
-  test("fails when the stop sequence cannot be fetched", async () => {
-    const { service } = setup(without(routeHandlers, "Bus/StopOfRoute"));
-
-    await expect(service.getRouteDetail("TPE16111")).rejects.toBeInstanceOf(TdxError);
-  });
-
-  test("caches the detail", async () => {
-    const { service, client } = setup(routeHandlers);
-    await service.getRouteDetail("TPE16111");
-    const calls = client.list.mock.calls.length;
-    await service.getRouteDetail("TPE16111");
-    expect(client.list.mock.calls.length).toBe(calls);
-  });
-
-  test.each(["TPE404", "TPE16111' or 1 eq 1"])("rejects %j without calling TDX", async (uid) => {
-    const { service, client } = setup(routeHandlers);
-
-    await expect(service.getRouteDetail(uid)).rejects.toBeInstanceOf(RouteNotFoundError);
-    await expect(service.getRouteLive(uid)).rejects.toBeInstanceOf(RouteNotFoundError);
-
-    expect(client.list).not.toHaveBeenCalled();
-  });
-});
-
 describe("getRouteLive", () => {
-  const liveHandlers: Record<string, Handler> = {
-    ...routeHandlers,
-    "Bus/EstimatedTimeOfArrival/City/Taipei/307": () => [
-      { RouteUID: "TPE16111", StopUID: "s1", Direction: 0, EstimateTime: 240, StopStatus: 0 },
-    ],
-    "Bus/RealTimeByFrequency/City/Taipei/307": () => [
-      {
-        PlateNumb: "EAL-0001",
-        RouteUID: "TPE16111",
-        Direction: 0,
-        BusPosition: { PositionLon: 121.52, PositionLat: 25 },
-        Azimuth: 80,
-      },
-    ],
-  };
-
   test("combines ETAs and bus positions", async () => {
     const { service } = setup(liveHandlers);
 
@@ -171,6 +63,41 @@ describe("getRouteLive", () => {
     expect(live.etas["0:s1"]?.estimateSec).toBe(240);
     expect(live.buses.map((b) => b.plate)).toEqual(["EAL-0001"]);
     expect(live.fetchedAt).toBe("2026-10-20T03:00:00.000Z");
+  });
+
+  test("queries by route name, filtered to the uid, taking the name from the static index", async () => {
+    const { service, client } = setup(liveHandlers);
+
+    await service.getRouteLive("TPE16111");
+
+    expect(client.list.mock.calls.map(([path]) => path).sort()).toEqual([
+      "Bus/EstimatedTimeOfArrival/City/Taipei/307",
+      "Bus/RealTimeByFrequency/City/Taipei/307",
+    ]);
+    expect(client.list.mock.calls[0][2]).toEqual({ $filter: "RouteUID eq 'TPE16111'" });
+  });
+
+  test("uses the InterCity path for highway buses", async () => {
+    const { service, client } = setup({
+      "Bus/EstimatedTimeOfArrival/InterCity/1610": () => [],
+      "Bus/RealTimeByFrequency/InterCity/1610": () => [],
+    });
+
+    await service.getRouteLive("THB1610");
+
+    expect(client.list).toHaveBeenCalledTimes(2);
+  });
+
+  test("url-encodes route names in the path, including parentheses", async () => {
+    const { service, client } = setup({
+      "Bus/EstimatedTimeOfArrival/City/Taipei/%E7%B4%855%28%E5%89%AF%29": () => [],
+      "Bus/RealTimeByFrequency/City/Taipei/%E7%B4%855%28%E5%89%AF%29": () => [],
+    });
+
+    const live = await service.getRouteLive("TPE1");
+
+    expect(client.list).toHaveBeenCalledTimes(2);
+    expect(live.unavailable).toEqual([]);
   });
 
   test("still returns ETAs when bus positions fail, flagging the missing part", async () => {
@@ -184,7 +111,23 @@ describe("getRouteLive", () => {
   });
 
   test("throws when both live sources fail", async () => {
-    const { service } = setup(routeHandlers);
+    const { service } = setup({});
     await expect(service.getRouteLive("TPE16111")).rejects.toBeInstanceOf(TdxError);
+  });
+
+  test("caches live data", async () => {
+    const { service, client } = setup(liveHandlers);
+    await service.getRouteLive("TPE16111");
+    const calls = client.list.mock.calls.length;
+    await service.getRouteLive("TPE16111");
+    expect(client.list.mock.calls.length).toBe(calls);
+  });
+
+  test.each(["TPE404", "TPE16111' or 1 eq 1"])("rejects %j without calling TDX", async (uid) => {
+    const { service, client } = setup(liveHandlers);
+
+    await expect(service.getRouteLive(uid)).rejects.toBeInstanceOf(RouteNotFoundError);
+
+    expect(client.list).not.toHaveBeenCalled();
   });
 });

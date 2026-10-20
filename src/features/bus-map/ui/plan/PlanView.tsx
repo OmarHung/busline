@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import type { LngLat, Place, PlanResult, RouteSummary, StopEta } from "@/lib/types";
+import type { LngLat, Place, PlanResult, RouteSummary } from "@/lib/types";
 import { useDebouncedValue, usePlaces, type LocateStatus } from "../../hooks";
 import { SwapVerticalIcon } from "../../icons";
 import { PlaceField } from "./PlaceField";
-import { PlanResults, type PlanSelection } from "./PlanResults";
+import { PlanResults, type BoardEta, type PlanSelection } from "./PlanResults";
 import { Suggestions } from "./Suggestions";
 import type { PlanField, PlanPoint } from "./types";
 
@@ -26,8 +26,8 @@ type Props = {
   onRetryPlan: () => void;
   selection: PlanSelection | null;
   onSelect: (selection: PlanSelection) => void;
-  boardEta: StopEta | undefined;
-  isBoardEtaLoading: boolean;
+  boardEta: BoardEta;
+  onRequestBoardEta: () => void;
   onOpenRoute: (route: RouteSummary) => void;
   onEditStart: () => void;
   /** 選好地點後（手機版會收起面板讓地圖露出來） */
@@ -130,7 +130,7 @@ export function PlanView(props: Props) {
             selection={props.selection}
             onSelect={props.onSelect}
             boardEta={props.boardEta}
-            isBoardEtaLoading={props.isBoardEtaLoading}
+            onRequestBoardEta={props.onRequestBoardEta}
             onOpenRoute={props.onOpenRoute}
           />
         )}

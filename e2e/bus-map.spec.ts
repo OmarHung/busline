@@ -89,6 +89,13 @@ test.describe("desktop", () => {
     await expect(page.getByText("目前沒有車輛回報位置")).toHaveCount(0);
   });
 
+  test("says the route does not exist when it has no detail file", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/?r=TPE10132");
+
+    await expect(page.getByText("找不到這條路線")).toBeVisible();
+  });
+
   test("ignores an invalid route id in the URL", async ({ page }) => {
     await mockApi(page);
     await page.goto("/?r=<script>");

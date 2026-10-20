@@ -3,7 +3,7 @@ import type { z } from "zod";
 import { CITIES } from "@/lib/cities";
 import type { TdxStopOfRoute } from "../tdx/schemas";
 import type { TdxLister } from "../tdx/service";
-import { buildStopIndex, fetchStopIndex } from "./build";
+import { buildStopIndex, fetchStopOfRoutes } from "./build";
 
 const stop = (uid: string, name: string, seq: number, lng: number, lat = 25) => ({
   StopUID: uid,
@@ -61,18 +61,19 @@ describe("buildStopIndex", () => {
   });
 });
 
-describe("fetchStopIndex", () => {
+describe("fetchStopOfRoutes", () => {
   test("asks TDX for the stop sequences of every city, with only the needed fields", async () => {
     const list = vi.fn(
       async (...[, schema]: [path: string, schema: z.ZodType<unknown>, query?: Record<string, string>]) =>
         [{ RouteUID: "TPE1", Direction: 0, Stops: [stop("a", "甲", 1, 121.5)] }].map((x) => schema.parse(x)),
     );
 
-    const index = await fetchStopIndex({ list } as unknown as TdxLister, { sleep: async () => {}, now: () => NOW });
+    const cities = await fetchStopOfRoutes({ list } as unknown as TdxLister, { sleep: async () => {} });
 
     expect(list).toHaveBeenCalledTimes(CITIES.length);
     expect(list.mock.calls[0][0]).toBe("Bus/StopOfRoute/City/Taipei");
     expect(list.mock.calls[0][2]).toEqual({ $select: "RouteUID,SubRouteUID,Direction,Stops" });
-    expect(index.stops).toHaveLength(1);
+    expect(cities).toHaveLength(CITIES.length);
+    expect(buildStopIndex(cities, NOW).stops).toHaveLength(1);
   });
 });

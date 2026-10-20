@@ -14,7 +14,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "data:routes": "tsx scripts/build-route-index.mts",
-    "data:stops": "tsx scripts/build-stop-index.mts",
+    "data:stops": "tsx scripts/build-stop-data.mts",
     "data": "pnpm data:routes && pnpm data:stops"
   },
   "dependencies": {

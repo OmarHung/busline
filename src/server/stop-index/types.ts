@@ -1,5 +1,5 @@
 /**
- * 預先產生的全台站序（路線規劃用），由 scripts/build-stop-index.mts 產生。
+ * 預先產生的全台站序（路線規劃用），由 scripts/build-stop-data.mts 產生。
  * 為了控制檔案大小，用陣列而不是物件。
  */
 export interface StopIndex {

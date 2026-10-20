@@ -7,8 +7,9 @@ import type { LngLat, Place, PlanResult, RouteDetail, RouteIndex, RouteLive } fr
 /** 即時資料更新間隔，配合伺服器端 30 秒快取（TDX 免費額度每分鐘 5 次） */
 const LIVE_REFRESH_MS = 30_000;
 
-async function fetchJson<T>(url: string): Promise<T> {
+async function fetchJson<T>(url: string, notFoundMessage?: string): Promise<T> {
   const res = await fetch(url);
+  if (res.status === 404 && notFoundMessage) throw new Error(notFoundMessage);
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const message = (body as { error?: unknown } | null)?.error;
@@ -23,8 +24,11 @@ export function useRouteIndex() {
   return useSWR<RouteIndex, Error>("/api/routes", fetchJson, STATIC_OPTIONS);
 }
 
+/** 路線詳情（線型＋站序）是 pnpm data:stops 預先產生的靜態檔，開路線不用呼叫 TDX；清單外的路線沒有檔案 */
+const fetchRouteDetail = (url: string) => fetchJson<RouteDetail>(url, "找不到這條路線");
+
 export function useRouteDetail(uid: string | null) {
-  return useSWR<RouteDetail, Error>(uid ? `/api/routes/${uid}` : null, fetchJson, STATIC_OPTIONS);
+  return useSWR<RouteDetail, Error>(uid ? `/data/routes/${uid}.json` : null, fetchRouteDetail, STATIC_OPTIONS);
 }
 
 /**

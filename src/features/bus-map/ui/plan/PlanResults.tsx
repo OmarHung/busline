@@ -19,6 +19,14 @@ export interface PlanSelection {
   ride: number;
 }
 
+/** 選取路線在上車站的即時到站；要使用者按了才查（idle），避免耗用 TDX 額度 */
+export type BoardEta =
+  | { status: "idle" }
+  | { status: "loading" }
+  /** eta 為 undefined 表示這一站沒有到站資料 */
+  | { status: "ready"; eta: StopEta | undefined }
+  | { status: "error" };
+
 type Props = {
   result: PlanResult | undefined;
   isLoading: boolean;
@@ -26,9 +34,8 @@ type Props = {
   onRetry: () => void;
   selection: PlanSelection | null;
   onSelect: (selection: PlanSelection) => void;
-  /** 選取路線在上車站的即時到站；undefined 表示還沒取得 */
-  boardEta: StopEta | undefined;
-  isBoardEtaLoading: boolean;
+  boardEta: BoardEta;
+  onRequestBoardEta: () => void;
   onOpenRoute: (route: RouteSummary) => void;
 };
 
@@ -40,7 +47,7 @@ export function PlanResults({
   selection,
   onSelect,
   boardEta,
-  isBoardEtaLoading,
+  onRequestBoardEta,
   onOpenRoute,
 }: Props) {
   if (error && !result) return <ErrorState message={error.message} onRetry={onRetry} />;
@@ -71,8 +78,8 @@ export function PlanResults({
                 isSelected={selection?.option === index}
                 rideIndex={selection?.option === index ? selection.ride : 0}
                 onSelect={(ride) => onSelect({ option: index, ride })}
-                boardEta={selection?.option === index ? boardEta : undefined}
-                isBoardEtaLoading={isBoardEtaLoading}
+                boardEta={boardEta}
+                onRequestBoardEta={onRequestBoardEta}
                 onOpenRoute={onOpenRoute}
               />
             </li>
@@ -92,12 +99,13 @@ type CardProps = {
   isSelected: boolean;
   rideIndex: number;
   onSelect: (ride: number) => void;
-  boardEta: StopEta | undefined;
-  isBoardEtaLoading: boolean;
+  /** 只有選取的方案會展開顯示 */
+  boardEta: BoardEta;
+  onRequestBoardEta: () => void;
   onOpenRoute: (route: RouteSummary) => void;
 };
 
-function OptionCard({ option, isSelected, rideIndex, onSelect, boardEta, isBoardEtaLoading, onOpenRoute }: CardProps) {
+function OptionCard({ option, isSelected, rideIndex, onSelect, boardEta, onRequestBoardEta, onOpenRoute }: CardProps) {
   const ride = option.rides[rideIndex] ?? option.rides[0];
   const extra = option.rides.length - MAX_BADGES;
 
@@ -162,14 +170,7 @@ function OptionCard({ option, isSelected, rideIndex, onSelect, boardEta, isBoard
             <Step icon={<RouteBadge name={ride.route.name} variant="route" />}>
               <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span>{ride.headsign}</span>
-                <span className="flex items-center gap-1 text-xs text-fg-muted">
-                  下一班
-                  {boardEta ? (
-                    <EtaChip eta={formatEta(boardEta)} isLastBus={boardEta.isLastBus} />
-                  ) : (
-                    <span>{isBoardEtaLoading ? "查詢中…" : "—"}</span>
-                  )}
-                </span>
+                <BoardEtaInfo state={boardEta} onRequest={onRequestBoardEta} />
               </span>
               <span className="block text-xs text-fg-muted">
                 坐 {ride.stopCount} 站，在<strong className="font-semibold text-fg">「{option.alight.name}」</strong>
@@ -192,6 +193,31 @@ function OptionCard({ option, isSelected, rideIndex, onSelect, boardEta, isBoard
         </div>
       )}
     </div>
+  );
+}
+
+function BoardEtaInfo({ state, onRequest }: { state: BoardEta; onRequest: () => void }) {
+  if (state.status === "idle") {
+    return (
+      <button
+        type="button"
+        onClick={onRequest}
+        className="rounded-full border border-line px-2.5 py-0.5 text-xs text-fg-muted transition hover:border-route hover:text-route"
+      >
+        查看下一班
+      </button>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1 text-xs text-fg-muted">
+      下一班
+      {state.status === "ready" && state.eta ? (
+        <EtaChip eta={formatEta(state.eta)} isLastBus={state.eta.isLastBus} />
+      ) : (
+        <span>{state.status === "loading" ? "查詢中…" : state.status === "error" ? "暫時無法取得" : "—"}</span>
+      )}
+    </span>
   );
 }
 

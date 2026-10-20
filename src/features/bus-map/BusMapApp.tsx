@@ -6,11 +6,12 @@ import { useEffect, useMemo, useState } from "react";
 import { isValidRouteUid } from "@/lib/cities";
 import { nearestStopIndex } from "@/lib/geo/nearest";
 import { sliceLineBetween } from "@/lib/geo/slice";
-import { etaKey, type RouteSummary, type StopEta } from "@/lib/types";
+import { etaKey, type RouteSummary } from "@/lib/types";
 import { useMediaQuery, useRouteDetail, useRouteIndex, useRouteLive, useWindowHeight } from "./hooks";
 import type { PlanOverlay } from "./map/geojson";
 import { Panel, SHEET_COLLAPSED_RATIO } from "./ui/Panel";
 import { PanelHeader, type PanelMode } from "./ui/PanelHeader";
+import type { BoardEta } from "./ui/plan/PlanResults";
 import { PlanView } from "./ui/plan/PlanView";
 import { usePlanState } from "./ui/plan/usePlanState";
 import { RouteView } from "./ui/RouteView";
@@ -35,11 +36,13 @@ export function BusMapApp() {
   const ride = isPlanning ? planner.selectedRide : undefined;
   const option = isPlanning ? planner.selectedOption : undefined;
 
-  // 路線頁看的路線，或規劃中選取的那條路線；同時只會有一條在抓即時資料
+  // 路線頁看的路線，或規劃中選取的那條路線；線型與站序來自靜態檔，不耗 TDX 額度
   const activeUid = uid ?? ride?.route.uid ?? null;
+  // 即時資料要呼叫 TDX：路線頁一律抓，規劃中只有使用者按了「查看下一班」才抓；同時只會有一條
+  const liveUid = uid ?? (planner.isLiveRequested ? ride?.route.uid : undefined) ?? null;
   const index = useRouteIndex();
   const detail = useRouteDetail(activeUid);
-  const live = useRouteLive(activeUid);
+  const live = useRouteLive(liveUid);
 
   const [query, setQuery] = useState("");
   const [isExpanded, setExpanded] = useState(false);
@@ -83,11 +86,15 @@ export function BusMapApp() {
     };
   }, [isPlanning, planner.origin, planner.destination, option, ride, rideDirection]);
 
-  const boardEta = useMemo<StopEta | undefined>(() => {
-    if (!option || !ride || !rideDirection || !live.data) return undefined;
-    const i = nearestStopIndex(rideDirection.stops, option.board.position);
-    return i >= 0 ? live.data.etas[etaKey(ride.direction, rideDirection.stops[i].uid)] : undefined;
-  }, [option, ride, rideDirection, live.data]);
+  const boardEta = useMemo<BoardEta>(() => {
+    if (!planner.isLiveRequested || !option || !ride) return { status: "idle" };
+    if ((live.error && !live.data) || (detail.error && !detail.data)) return { status: "error" };
+    if (!live.data || !detail.data) return { status: "loading" };
+    if (live.data.unavailable.includes("etas")) return { status: "error" };
+    const stops = rideDirection?.stops ?? [];
+    const i = nearestStopIndex(stops, option.board.position);
+    return { status: "ready", eta: i >= 0 ? live.data.etas[etaKey(ride.direction, stops[i].uid)] : undefined };
+  }, [planner.isLiveRequested, option, ride, rideDirection, live.data, live.error, detail.data, detail.error]);
 
   const openRoute = (route: RouteSummary, routeDirection?: number) => {
     if (routeDirection !== undefined) setDirectionChoice({ uid: route.uid, direction: routeDirection });
@@ -119,7 +126,7 @@ export function BusMapApp() {
       <MapView
         detail={uid ? (detail.data ?? null) : null}
         direction={uid ? direction : (ride?.direction ?? 0)}
-        buses={activeUid ? (live.data?.buses ?? []) : []}
+        buses={liveUid ? (live.data?.buses ?? []) : []}
         selectedStopUid={selectedStopUid}
         onStopClick={selectStop}
         padding={padding}
@@ -171,7 +178,7 @@ export function BusMapApp() {
                 selection={planner.selection}
                 onSelect={planner.select}
                 boardEta={boardEta}
-                isBoardEtaLoading={Boolean(ride) && (detail.isLoading || live.isLoading)}
+                onRequestBoardEta={planner.requestLive}
                 onOpenRoute={(route) => openRoute(route, ride?.route.uid === route.uid ? ride.direction : undefined)}
                 onEditStart={() => setExpanded(true)}
                 onEditEnd={() => setExpanded(false)}

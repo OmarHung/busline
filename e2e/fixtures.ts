@@ -114,7 +114,7 @@ export const PLAN_RESULT: PlanResult = {
   ],
 };
 
-/** 攔截 /api/routes*，回傳固定資料 */
+/** 攔截 API 與預先產生的路線詳情靜態檔，回傳固定資料；fixture 以外的路線沒有詳情檔（404） */
 export async function mockApi(
   page: Page,
   overrides: { indexStatus?: number; live?: Partial<RouteLive>; plan?: PlanResult } = {},
@@ -126,7 +126,11 @@ export async function mockApi(
       ? route.fulfill({ status: overrides.indexStatus, json: { error: "交通部 TDX 資料暫時無法取得，請稍後再試" } })
       : route.fulfill({ json: ROUTE_INDEX }),
   );
-  await page.route("**/api/routes/TPE16111", (route) => route.fulfill({ json: ROUTE_DETAIL }));
+  await page.route("**/data/routes/*.json", (route) =>
+    route.request().url().endsWith("/TPE16111.json")
+      ? route.fulfill({ json: ROUTE_DETAIL })
+      : route.fulfill({ status: 404, body: "Not Found" }),
+  );
   await page.route("**/api/routes/TPE16111/live", (route) =>
     route.fulfill({ json: { ...ROUTE_LIVE, fetchedAt: new Date().toISOString(), ...overrides.live } }),
   );

@@ -1,4 +1,4 @@
-// 前後端共用的 API 資料型別（/api/routes*）
+// 前後端共用的資料型別（/api/*、/data/routes/*.json）
 
 export type LngLat = [lng: number, lat: number];
 

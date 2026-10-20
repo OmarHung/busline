@@ -15,6 +15,8 @@ export function usePlanState() {
   const [destination, setDestination] = useState<PlanPoint | null>(null);
   // 選取綁定起終點；起終點改了就回到預設（第一個方案）
   const [choice, setChoice] = useState<{ key: string; selection: PlanSelection } | null>(null);
+  // 即時到站要呼叫 TDX（每分鐘只有 5 次），使用者按了才查；綁定選取的路線，換一條就要重按
+  const [liveKey, setLiveKey] = useState<string | null>(null);
   const locator = useCurrentPosition();
   const plan = usePlan(origin?.position ?? null, destination?.position ?? null);
 
@@ -23,6 +25,8 @@ export function usePlanState() {
   const selection = choice?.key === key ? choice.selection : hasOptions ? { option: 0, ride: 0 } : null;
   const selectedOption = selection ? plan.data?.options[selection.option] : undefined;
   const selectedRide = selection ? selectedOption?.rides[selection.ride] : undefined;
+  const selectionKey = selection ? `${key}|${selection.option}:${selection.ride}` : null;
+  const isLiveRequested = selectionKey !== null && liveKey === selectionKey;
 
   const setPoint = (field: PlanField, point: PlanPoint | null) =>
     field === "origin" ? setOrigin(point) : setDestination(point);
@@ -47,5 +51,7 @@ export function usePlanState() {
     select: (next: PlanSelection) => setChoice({ key, selection: next }),
     selectedOption,
     selectedRide,
+    isLiveRequested,
+    requestLive: () => setLiveKey(selectionKey),
   };
 }

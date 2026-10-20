@@ -44,17 +44,17 @@ export function buildStopIndex(cities: ReadonlyArray<readonly TdxStopOfRoute[]>,
   return { generatedAt: now.toISOString(), stops, patterns };
 }
 
-/** 抓全台站序（23 次呼叫）；給 scripts/build-stop-index.mts 用 */
-export async function fetchStopIndex(
+/**
+ * 抓全台站序（23 次呼叫），依縣市分組；給 scripts/build-stop-data.mts 用。
+ * 同一份資料同時產生站序索引與各路線詳情，不用抓兩次。
+ */
+export async function fetchStopOfRoutes(
   client: TdxLister,
-  { now = () => new Date(), ...options }: FetchAllCitiesOptions & { now?: () => Date } = {},
-): Promise<StopIndex> {
+  options: FetchAllCitiesOptions = {},
+): Promise<TdxStopOfRoute[][]> {
   const cities = await fetchAllCities(
     (city) => client.list(`Bus/StopOfRoute/${city.tdxPath}`, StopOfRouteSchema, { $select: STOP_OF_ROUTE_FIELDS }),
     options,
   );
-  return buildStopIndex(
-    cities.map(({ items }) => items),
-    now(),
-  );
+  return cities.map(({ items }) => items);
 }

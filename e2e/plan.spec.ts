@@ -12,6 +12,10 @@ test.describe("路線規劃", () => {
   test("plans from the current location to a landmark and shows the next bus at the boarding stop", async ({
     page,
   }) => {
+    const liveRequests: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("/live")) liveRequests.push(req.url());
+    });
     await mockApi(page);
     await page.goto("/");
     await page.getByRole("tab", { name: "路線規劃" }).click();
@@ -20,6 +24,8 @@ test.describe("路線規劃", () => {
 
     await page.getByRole("searchbox", { name: "終點" }).fill("台北101");
     const planRequest = page.waitForRequest((req) => req.url().includes("/api/plan?"));
+    // 選取的方案會讀路線詳情靜態檔來畫線型（不耗 TDX 額度）
+    const detailResponse = page.waitForResponse((res) => res.url().endsWith("/data/routes/TPE16111.json"));
     await page.getByRole("button", { name: /^台北101/ }).click();
 
     const url = new URL((await planRequest).url());
@@ -34,8 +40,30 @@ test.describe("路線規劃", () => {
     await expect(first).toContainText("38");
     await expect(first).toContainText("「板橋車站」");
     await expect(first).toContainText("「國父紀念館」下車");
+
+    // 即時到站要呼叫 TDX（每分鐘只有 5 次），使用者按了才查
+    await detailResponse;
+    expect(liveRequests).toEqual([]);
+    await first.getByRole("button", { name: "查看下一班" }).click();
     // 上車站「板橋車站」的即時到站（fixture 為 20 秒）
     await expect(first).toContainText("進站中");
+    expect(liveRequests).toHaveLength(1);
+  });
+
+  test("asks again before fetching the next bus of another route", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    await page.getByRole("tab", { name: "路線規劃" }).click();
+    await page.getByRole("searchbox", { name: "終點" }).fill("台北101");
+    await page.getByRole("button", { name: /^台北101/ }).click();
+
+    const first = page.getByRole("list", { name: "直達方案" }).locator("> li").first();
+    await first.getByRole("button", { name: "查看下一班" }).click();
+    await expect(first).toContainText("進站中");
+
+    await first.getByRole("radio", { name: "307西藏三民", exact: true }).click();
+    await expect(first.getByRole("button", { name: "查看下一班" })).toBeVisible();
+    await expect(first).not.toContainText("進站中");
   });
 
   test("switching to another route in the same option, then opening it, lands on the right direction", async ({
