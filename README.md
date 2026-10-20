@@ -21,6 +21,7 @@ pnpm dev
 | `pnpm test:coverage` | 測試覆蓋率（門檻 80%）                                                         |
 | `pnpm test:e2e`      | E2E 測試（Playwright，API 用假資料，不需 TDX 金鑰）                            |
 | `pnpm lint`          | ESLint                                                                         |
+| `pnpm typecheck`     | 型別檢查（先用 `next typegen` 產生路由型別再跑 tsc）                           |
 | `pnpm format`        | Prettier                                                                       |
 | `pnpm data:routes`   | 重新產生全台路線清單 `src/data/route-index.json`                               |
 | `pnpm data:stops`    | 重新產生全台站序 `src/data/stop-index.json` 與各路線詳情 `public/data/routes/` |
