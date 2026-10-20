@@ -18,6 +18,9 @@ import {
 import type { NearbyOverlay, PlanOverlay } from "./map/geojson";
 import type { Viewport } from "./map/MapView";
 import { MapNearbyButton } from "./ui/nearby/MapNearbyButton";
+import { decodeShared, resolveShared, type Favorite } from "./favorites/favorites";
+import { FavoritesSection, type ImportOffer } from "./favorites/FavoritesSection";
+import { useFavorites } from "./favorites/useFavorites";
 import { NearbyView, type NearbySource } from "./ui/nearby/NearbyView";
 import { hintedStopUid, type StopHint } from "./ui/nearby/stop-hint";
 import { Panel, SHEET_COLLAPSED_RATIO } from "./ui/Panel";
@@ -86,12 +89,55 @@ export function BusMapApp() {
   const direction =
     directionChoice?.uid === uid ? directionChoice.direction : (detail.data?.directions[0]?.direction ?? 0);
   const stopKey = `${uid}:${direction}`;
-  const activeStops = detail.data?.directions.find((d) => d.direction === direction)?.stops ?? [];
+  const activeDirection = detail.data?.directions.find((d) => d.direction === direction);
+  const activeStops = activeDirection?.stops ?? [];
   const hintedUid =
     stopHint?.uid === uid && stopHint.direction === direction ? hintedStopUid(activeStops, stopHint) : null;
   const selectedStopUid = stopChoice?.key === stopKey ? stopChoice.stopUid : hintedUid;
   const summary = uid ? index.data?.routes.find((r) => r.uid === uid) : undefined;
   const routeName = detail.data?.name ?? summary?.name;
+
+  const favorites = useFavorites();
+  // 收藏存路線摘要（名稱、起訖站），收藏列表不用等路線清單載入就能顯示
+  const currentRoute: RouteSummary | undefined =
+    summary ??
+    (detail.data && {
+      uid: detail.data.uid,
+      name: detail.data.name,
+      cityCode: detail.data.cityCode,
+      from: detail.data.from,
+      to: detail.data.to,
+    });
+  const selectedStop = activeStops.find((s) => s.uid === selectedStopUid);
+  const routeFavorite: Favorite | null = currentRoute ? { kind: "route", route: currentRoute } : null;
+  const stopFavorite: Favorite | null =
+    currentRoute && selectedStop
+      ? {
+          kind: "stop",
+          route: currentRoute,
+          direction,
+          headsign: activeDirection?.headsign ?? "",
+          stop: { name: selectedStop.name, position: selectedStop.position },
+        }
+      : null;
+
+  // 分享收藏的連結（?fav=…）先問使用者要不要匯入；要等路線清單載入，才能補上路線名稱與起訖站
+  const sharedParam = searchParams.get("fav");
+  const shared = useMemo(() => (sharedParam ? decodeShared(sharedParam) : null), [sharedParam]);
+  const clearSharedParam = () => window.history.replaceState(null, "", window.location.pathname);
+  const importOffer: ImportOffer | null =
+    sharedParam && !uid
+      ? {
+          count: shared?.length ?? null,
+          isReady: index.data !== undefined,
+          onAccept: () => {
+            if (!shared || !index.data) return;
+            favorites.importMany(resolveShared(shared, new Map(index.data.routes.map((r) => [r.uid, r]))));
+            clearSharedParam();
+          },
+          onDismiss: clearSharedParam,
+        }
+      : null;
 
   useEffect(() => {
     document.title = uid && routeName ? `${routeName}・${APP_TITLE}` : APP_TITLE;
@@ -127,6 +173,12 @@ export function BusMapApp() {
     // 從搜尋或規劃點進來的就退回上一頁（保留原本的狀態），從分享連結進來的則新增一筆首頁，避免離開網站
     if ((window.history.state as Record<string, unknown> | null)?.[FROM_SEARCH_KEY]) window.history.back();
     else window.history.pushState(null, "", window.location.pathname);
+  };
+
+  const openFavorite = (favorite: Favorite) => {
+    if (favorite.kind === "route") return openRoute(favorite.route);
+    const { route, direction: favoriteDirection, stop } = favorite;
+    openRoute(route, favoriteDirection, { uid: route.uid, direction: favoriteDirection, ...stop });
   };
 
   const openNearbyRoute = (station: NearbyStation, ride: NearbyRoute) =>
@@ -206,6 +258,11 @@ export function BusMapApp() {
             selectedStopUid={selectedStopUid}
             onStopSelect={selectStop}
             onBack={closeRoute}
+            isRouteFavorite={routeFavorite ? favorites.has(routeFavorite) : false}
+            onToggleRouteFavorite={() => routeFavorite && favorites.toggle(routeFavorite)}
+            selectedStop={selectedStop}
+            isStopFavorite={stopFavorite ? favorites.has(stopFavorite) : false}
+            onToggleStopFavorite={() => stopFavorite && favorites.toggle(stopFavorite)}
           />
         ) : (
           <>
@@ -220,6 +277,14 @@ export function BusMapApp() {
                 onQueryChange={setQuery}
                 onSelect={(route) => openRoute(route)}
                 onFocus={() => setExpanded(true)}
+                home={
+                  <FavoritesSection
+                    favorites={favorites.list}
+                    onOpen={openFavorite}
+                    onRemove={favorites.remove}
+                    importOffer={importOffer}
+                  />
+                }
               />
             ) : mode === "nearby" ? (
               <NearbyView

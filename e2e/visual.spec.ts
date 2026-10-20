@@ -1,5 +1,7 @@
 import { test } from "@playwright/test";
-import { BANQIAO, mockApi } from "./fixtures";
+import { serializeStored } from "../src/features/bus-map/favorites/favorites";
+import { FAVORITES_STORAGE_KEY } from "../src/features/bus-map/favorites/store";
+import { BANQIAO, mockApi, ROUTE_INDEX } from "./fixtures";
 
 // 只在 VISUAL_OUT 有設定時執行：輸出各種狀態的截圖供人工檢查
 const OUT = process.env.VISUAL_OUT;
@@ -26,6 +28,31 @@ for (const c of cases) {
       await page.getByRole("button", { name: /忠孝復興/ }).waitFor();
       await page.waitForTimeout(3500);
       await page.screenshot({ path: `${OUT}/${c.name}-route.png` });
+    });
+
+    test("favorites", async ({ page }) => {
+      const route = ROUTE_INDEX.routes[0];
+      const favorites = serializeStored([
+        {
+          kind: "stop",
+          route,
+          direction: 1,
+          headsign: "往 板橋",
+          stop: { name: "新埔", position: [121.4683, 25.0236] },
+        },
+        { kind: "route", route: ROUTE_INDEX.routes[3] },
+      ]);
+      await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [FAVORITES_STORAGE_KEY, favorites]);
+      await mockApi(page);
+      await page.goto("/");
+      await page.getByRole("list", { name: "收藏的路線與站牌" }).waitFor();
+      await page.waitForTimeout(1500);
+      await page.screenshot({ path: `${OUT}/${c.name}-favorites.png` });
+
+      await page.getByRole("button", { name: "307 新埔・往 板橋", exact: true }).click();
+      await page.getByRole("button", { name: /收藏這一站/ }).waitFor();
+      await page.waitForTimeout(2500);
+      await page.screenshot({ path: `${OUT}/${c.name}-favorite-stop.png` });
     });
 
     test("nearby", async ({ page, context }) => {

@@ -1,9 +1,9 @@
 "use client";
 
 import { cityByCode } from "@/lib/cities";
-import type { RouteDetail, RouteLive, RouteSummary } from "@/lib/types";
+import type { RouteDetail, RouteLive, RouteSummary, Stop } from "@/lib/types";
 import { useNow } from "../hooks";
-import { AlertIcon, BackIcon } from "../icons";
+import { AlertIcon, BackIcon, StarIcon } from "../icons";
 import { RouteBadge } from "./RouteBadge";
 import { ErrorState } from "./SearchView";
 import { StopList } from "./StopList";
@@ -20,6 +20,12 @@ type Props = {
   selectedStopUid: string | null;
   onStopSelect: (uid: string) => void;
   onBack: () => void;
+  isRouteFavorite: boolean;
+  onToggleRouteFavorite: () => void;
+  /** 選取的站；有選時才能收藏這一站 */
+  selectedStop: Stop | undefined;
+  isStopFavorite: boolean;
+  onToggleStopFavorite: () => void;
 };
 
 export function RouteView({
@@ -34,6 +40,11 @@ export function RouteView({
   selectedStopUid,
   onStopSelect,
   onBack,
+  isRouteFavorite,
+  onToggleRouteFavorite,
+  selectedStop,
+  isStopFavorite,
+  onToggleStopFavorite,
 }: Props) {
   const head = detail ?? summary;
   const activeDirection = detail?.directions.find((d) => d.direction === direction);
@@ -68,6 +79,19 @@ export function RouteView({
               )}
             </p>
           </div>
+          {head && (
+            <button
+              type="button"
+              onClick={onToggleRouteFavorite}
+              aria-pressed={isRouteFavorite}
+              aria-label="收藏路線"
+              className={`ml-auto grid size-10 shrink-0 place-items-center rounded-full transition hover:bg-surface-sunken ${
+                isRouteFavorite ? "text-soon" : "text-fg-subtle hover:text-fg"
+              }`}
+            >
+              <StarIcon isFilled={isRouteFavorite} width={22} height={22} />
+            </button>
+          )}
         </div>
 
         {detail && detail.directions.length > 1 && (
@@ -93,6 +117,25 @@ export function RouteView({
         )}
 
         {detail && <LiveStatus live={live} liveError={liveError} direction={direction} />}
+        {selectedStop && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-surface-sunken py-1 pr-1 pl-3">
+            <p className="min-w-0 truncate text-sm">
+              <span className="text-fg-subtle">已選・</span>
+              {selectedStop.name}
+            </p>
+            <button
+              type="button"
+              onClick={onToggleStopFavorite}
+              aria-pressed={isStopFavorite}
+              className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition hover:bg-surface-solid ${
+                isStopFavorite ? "text-soon" : "text-fg-muted hover:text-fg"
+              }`}
+            >
+              <StarIcon isFilled={isStopFavorite} width={15} height={15} />
+              {isStopFavorite ? "已收藏這一站" : "收藏這一站"}
+            </button>
+          </div>
+        )}
         {activeDirection?.isApproximate && (
           <p className="mt-2 flex items-center gap-1.5 text-xs text-soon">
             <AlertIcon width={14} height={14} />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type KeyboardEvent } from "react";
+import { useMemo, type KeyboardEvent, type ReactNode } from "react";
 import { searchRoutes } from "@/lib/search";
 import type { RouteIndex, RouteSummary } from "@/lib/types";
 import { AlertIcon, CloseIcon, SearchIcon } from "../icons";
@@ -17,9 +17,11 @@ type Props = {
   onQueryChange: (query: string) => void;
   onSelect: (route: RouteSummary) => void;
   onFocus: () => void;
+  /** 沒輸入關鍵字時顯示在提示上方（收藏） */
+  home?: ReactNode;
 };
 
-export function SearchView({ index, isLoading, error, onRetry, query, onQueryChange, onSelect, onFocus }: Props) {
+export function SearchView({ index, isLoading, error, onRetry, query, onQueryChange, onSelect, onFocus, home }: Props) {
   const groups = useMemo(() => (index ? searchRoutes(index.routes, query) : []), [index, query]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -62,7 +64,10 @@ export function SearchView({ index, isLoading, error, onRetry, query, onQueryCha
         {error && !index ? (
           <ErrorState message={error.message} onRetry={onRetry} />
         ) : !query.trim() ? (
-          <Hint isLoading={isLoading} generatedAt={index?.generatedAt} onPick={onQueryChange} />
+          <>
+            {home}
+            <Hint isLoading={isLoading} generatedAt={index?.generatedAt} onPick={onQueryChange} />
+          </>
         ) : isLoading ? (
           <LoadingRows />
         ) : groups.length === 0 ? (

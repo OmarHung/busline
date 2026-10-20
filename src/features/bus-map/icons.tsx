@@ -98,3 +98,16 @@ export const GripIcon = (props: IconProps) => (
     ))}
   </svg>
 );
+
+/** isFilled：已收藏 */
+export const StarIcon = ({ isFilled = false, ...props }: IconProps & { isFilled?: boolean }) => (
+  <svg {...base} {...props} fill={isFilled ? "currentColor" : "none"}>
+    <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" />
+  </svg>
+);
+
+export const ShareIcon = (props: IconProps) => (
+  <svg {...base} {...props}>
+    <path d="M12 15V3M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+  </svg>
+);
